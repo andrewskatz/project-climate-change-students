@@ -1,0 +1,232 @@
+---
+title: "IJSHE_students_coursework_climate_change"
+author: "Shealy and Katz"
+date: "2/13/2020"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(tidyverse)
+library(broom)
+library(knitr)
+library(randomForest)
+library(purrr)
+library(purrrlyr)
+library(RColorBrewer)
+library(gmodels)
+library(umap)
+library(dbscan)
+library(pixiedust)
+library(jtools)
+library(kableExtra)
+
+library(sjPlot)
+library(sjlabelled)
+library(sjmisc)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+
+
+```
+
+## Analysis for 2020 IJSHE paper on engineering student curricular and co-curricular experiences and career interests 
+
+
+```{r data processing, echo=FALSE, message=FALSE}
+
+project_path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change"
+setwd(project_path)
+
+climate_df <- read_csv("updated_climate_df_5.csv")
+
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+Q16_vars <- paste0("Q16", letters[1:13])
+Q27_vars <- paste0("Q27", letters[1:9])
+Q28_vars <- paste0("Q28", letters[1:12])
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+
+
+# create a new dataframe for doing all the calculations
+#rf_df <- climate_data
+
+# rf_df <- rf_df %>% mutate_at(vars(Q1_vars), ~replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+# 
+# #rf_df <- rf_df %>% mutate_at(vars(Q5_vars), ~ replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q7_vars), ~ replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q35_vars), ~ replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q39_vars), ~ replace_na(., 0))
+# 
+# 
+# rf_df <- rf_df %>% drop_na(Q28_vars)
+# 
+# rf_df <- rf_df %>% drop_na(Q16_vars)
+
+
+#data read-in 
+#climate_df <- read_csv("filtered_climate_survey_20200122.csv")
+
+
+# drop the Q28 and Q27 items that had any NAs
+
+#climate_df <- climate_df %>% drop_na(Q28_vars)
+#climate_df <- climate_df %>% drop_na(Q27_vars) #should have 
+dim(climate_df)
+
+
+```
+
+
+
+### Linear models
+
+
+
+#### Research Question 1 
+"What is the relationship between course topics and students’ interest to address the topic in their careers?"
+
+``` {r echo=FALSE}
+
+
+q16_abe_model <- lm(Q16_abe ~ Q7a_wt_sum + Q7b_wt_sum + Q7c_wt_sum + 
+                      Q7d_wt_sum + Q7e_wt_sum + Q7f_wt_sum + Q7g_wt_sum +
+                      Q7h_wt_sum + Q7i_wt_sum + Q7j_wt_sum + 
+                      Q7k_wt_sum + Q7l_wt_sum + Q7m_wt_sum +
+                      Q7n_wt_sum + Q7o_wt_sum + Q7p_wt_sum +
+                      Q7q_wt_sum + Q7r_wt_sum + Q7s_wt_sum +
+                      Q7t_wt_sum + Q7u_wt_sum + Q7v_wt_sum, data=climate_df)
+
+
+#dust(q16_abe_model)
+
+summary(q16_abe_model)
+
+tab_model(q16_abe_model)
+
+
+```
+
+
+
+
+
+``` {r echo=FALSE}
+
+
+q16_hijk_model <- lm(Q16_hijk ~ Q7a_wt_sum + Q7b_wt_sum + Q7c_wt_sum + 
+                      Q7d_wt_sum + Q7e_wt_sum + Q7f_wt_sum + Q7g_wt_sum +
+                      Q7h_wt_sum + Q7i_wt_sum + Q7j_wt_sum + 
+                      Q7k_wt_sum + Q7l_wt_sum + Q7m_wt_sum +
+                      Q7n_wt_sum + Q7o_wt_sum + Q7p_wt_sum +
+                      Q7q_wt_sum + Q7r_wt_sum + Q7s_wt_sum +
+                      Q7t_wt_sum + Q7u_wt_sum + Q7v_wt_sum, data=climate_df)
+summary(q16_hijk_model)
+
+#dust(q16_hijk_model)
+
+tab_model(q16_hijk_model)
+
+```
+
+
+
+
+
+``` {r echo=FALSE}
+
+
+q16_dfg_model <- lm(Q16_dfg ~ Q7a_wt_sum + Q7b_wt_sum + Q7c_wt_sum + 
+                      Q7d_wt_sum + Q7e_wt_sum + Q7f_wt_sum + Q7g_wt_sum +
+                      Q7h_wt_sum + Q7i_wt_sum + Q7j_wt_sum + 
+                      Q7k_wt_sum + Q7l_wt_sum + Q7m_wt_sum +
+                      Q7n_wt_sum + Q7o_wt_sum + Q7p_wt_sum +
+                      Q7q_wt_sum + Q7r_wt_sum + Q7s_wt_sum +
+                      Q7t_wt_sum + Q7u_wt_sum + Q7v_wt_sum, data=climate_df)
+summary(q16_dfg_model)
+#stargazer(q16_dfg_model)
+#tidy(q16_dfg_model)
+#glance(q16_dfg_model)
+
+#dust(q16_dfg_model)
+
+tab_model(q16_dfg_model)
+
+tab_model(q16_abe_model, q16_dfg_model, q16_hijk_model)
+
+```
+
+
+
+
+### Research Question 2
+
+
+"What is the relationship between undergraduate co-curricular experiences and topics engineering students want to address in their careers?"
+
+
+```{r echo=FALSE}
+
+
+q16_abe_q6_model <- lm(Q16_abe ~ Q6a_ind + Q6b_ind + Q6c_ind +
+                         Q6d_ind + Q6e_ind + Q6f_ind +
+                         Q6g_ind + Q6h_ind + Q6i_ind + Q6k_ind, data=climate_df)
+
+summary(q16_abe_q6_model)
+
+tab_model(q16_abe_q6_model)
+
+
+```
+
+
+```{r echo=FALSE}
+
+
+q16_dfg_q6_model <- lm(Q16_dfg ~ Q6a_ind + Q6b_ind + Q6c_ind +
+                         Q6d_ind + Q6e_ind + Q6f_ind +
+                         Q6g_ind + Q6h_ind + Q6i_ind + Q6k_ind, data=climate_df)
+
+summary(q16_dfg_q6_model)
+
+tab_model(q16_dfg_q6_model)
+
+
+```
+
+
+
+```{r echo=FALSE}
+
+
+q16_hijk_q6_model <- lm(Q16_hijk ~ Q6a_ind + Q6b_ind + Q6c_ind +
+                         Q6d_ind + Q6e_ind + Q6f_ind +
+                         Q6g_ind + Q6h_ind + Q6i_ind + Q6k_ind, data=climate_df)
+
+summary(q16_hijk_q6_model)
+
+tab_model(q16_hijk_q6_model)
+
+
+tab_model(q16_abe_q6_model, q16_dfg_q6_model, q16_hijk_q6_model)
+
+```
+
+
+

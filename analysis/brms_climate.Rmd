@@ -1,0 +1,213 @@
+---
+title: "brms_climate"
+author: "Katz"
+date: "7/24/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+library(brms)
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(RColorBrewer)
+
+
+library(brms)
+library(rstanarm)
+library(here)
+
+
+setwd("G:/My Drive/AK Faculty/Research/Projects/project students and climate change")
+
+#climate_df <- read_csv("filtered_climate_survey_20200122.csv")
+climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/updated_climate_df_2.csv")
+
+
+
+```
+
+
+Drop NAs for specific questions and filter out disciplines with fewer than 30 (the cutoff) students in sample
+
+```{r}
+
+
+climate_df <- climate_df %>% drop_na(Q29, Q20a, Q20b, Q20d, Q18k, Q22)
+
+climate_df %>% count(Q29, sort = TRUE)
+cutoff <- 30
+
+climate_df <- climate_df %>% add_count(Q29, name = "major_count") %>% filter(major_count > cutoff)
+
+
+
+```
+
+
+Set colors for majors for all plots
+```{r}
+major_num <- length(unique(climate_df$Q29))
+
+major_colors <- colorRampPalette(brewer.pal(9, "Set1"))(major_num)
+```
+
+
+```{r}
+# group all disciplines together?
+
+
+climate_df <- climate_df %>% mutate(Q29_binned = case_when(Q29 == 4 ~ "civil",
+                                             TRUE ~ "other")) 
+
+
+```
+
+
+
+
+## Q23 - I believe that a cause of global climate change is...
+
+```{r}
+
+climate_df <- climate_df %>%
+  mutate(Q23a_bin = case_when(Q23a == 0 | Q23a == 1 | Q23a == 2 ~ 0,
+                                         Q23a == 3 | Q23a == 4 ~ 1)) %>% 
+  mutate(Q23b_bin = case_when(Q23b == 0 | Q23b == 1 | Q23b == 2 ~ 0,
+                                         Q23b == 3 | Q23b == 4 ~ 1)) %>% 
+  mutate(Q23c_bin = case_when(Q23c == 0 | Q23c == 1 | Q23c == 2 ~ 0,
+                                         Q23c == 3 | Q23c == 4 ~ 1)) %>% 
+  mutate(Q23d_bin = case_when(Q23d == 0 | Q23d == 1 | Q23d == 2 ~ 0,
+                                         Q23d == 3 | Q23d == 4 ~ 1)) %>% 
+  mutate(Q23e_bin = case_when(Q23e == 0 | Q23e == 1 | Q23e == 2 ~ 0,
+                                         Q23e == 3 | Q23e == 4 ~ 1)) %>% 
+  mutate(Q23f_bin = case_when(Q23f == 0 | Q23f == 1 | Q23f == 2 ~ 0,
+                                         Q23f == 3 | Q23f == 4 ~ 1)) %>% 
+  mutate(Q23g_bin = case_when(Q23g == 0 | Q23g == 1 | Q23g == 2 ~ 0,
+                                         Q23g == 3 | Q23g == 4 ~ 1)) %>% 
+  mutate(Q23h_bin = case_when(Q23h == 0 | Q23h == 1 | Q23h == 2 ~ 0,
+                                         Q23h == 3 | Q23h == 4 ~ 1)) %>% 
+  mutate(Q23i_bin = case_when(Q23i == 0 | Q23i == 1 | Q23i == 2 ~ 0,
+                                         Q23i == 3 | Q23i == 4 ~ 1)) %>% 
+  mutate(Q23j_bin = case_when(Q23j == 0 | Q23j == 1 | Q23j == 2 ~ 0,
+                                         Q23j == 3 | Q23j == 4 ~ 1)) %>% 
+  mutate(Q23_bin_total = Q23a_bin + Q23b_bin + Q23c_bin + Q23d_bin + Q23e_bin + Q23f_bin + Q23g_bin + Q23h_bin + Q23i_bin + Q23j_bin) %>% 
+  drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j)
+
+
+
+climate_df %>% 
+  ggplot(aes(x = major, y = Q23_bin_total, fill = major)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q23 cumulative score",
+       title = "Q23 Score (Causes of climate change) by major")
+
+
+
+```
+
+
+
+
+### ANOVA for Q23 scores by major
+
+```{r}
+
+res.aov <- aov(Q23_bin_total ~ major, data = climate_df)
+summary(res.aov)
+
+#TukeyHSD(res.aov)
+
+
+
+```
+
+
+### T-test for Q23 scores by civl vs others
+
+
+```{r}
+
+
+climate_df %>% 
+  ggplot(aes(x = as_factor(Q29_binned), y = Q23_bin_total, fill = Q29_binned)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q23 cumulative score",
+       title = "Q23 Score (Causes of climate change) by major")
+
+
+
+```
+
+
+Calculate appropriate variables for Q23 and Q29 binning
+```{r}
+# classic t-test
+res <- t.test(Q23_bin_total ~ Q29_binned, data = climate_df, var.equal = FALSE)
+res
+
+```
+
+
+```{r}
+
+#using brms
+
+mod_robust <- brm(
+  bf(Q23_bin_total ~ Q29_binned, sigma ~ Q29_binned),
+  family = student,
+  data = climate_df,
+  cores = 4
+)
+
+mod_robust
+
+```
+
+
+
+```{r}
+#### Bayesian analysis
+
+
+mod_robust <- brm(
+  bf(Q23_bin_total ~ Q29_binned, sigma ~ Q29_binned),
+  family = student,
+  data = climate_df
+#  file = here::here("brms_test")
+)
+mod_robust
+#example(stan_model, package = "rstan", run.dontrun = TRUE)
+
+```
+
+
+```{r}
+post1 <- stan_aov(Q23_bin_total ~ major, data = climate_df, 
+                  prior = R2(location = 0.3), adapt_delta = 0.999,
+                  seed = 12345)
+post1
+
+
+
+```
+
+
+
+
+
+
+

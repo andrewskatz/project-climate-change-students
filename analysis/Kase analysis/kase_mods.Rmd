@@ -1,0 +1,412 @@
+---
+title: "Kase Analysis"
+author: "Katz et al."
+date: "7/7/2021"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+library(psych)
+library(tidyverse)
+library(tidymodels)
+library(ranger)
+library(purrrlyr)
+library(purrr)
+library(randomForest)
+library(pander)
+library(kableExtra)
+library(knitr)
+
+library(mice)
+
+library(brms)
+library(tidybayes)
+library(sjPlot)
+
+library(MASS)
+library(Hmisc)
+
+```
+
+
+Import data
+
+```{r}
+data_folder <- "G:/My Drive/AK Faculty/Service/Graduate student committees/Kase Poling/"
+data_file <- "duplicates_removed.csv"
+
+df <- read_csv(paste0(data_folder, data_file))
+
+```
+
+```{r}
+df <- df %>% 
+  rename(value_at_risk = `Value at Risk`)
+```
+
+
+## Data exploration
+
+```{r}
+df %>% 
+  count(value_at_risk)
+
+
+df %>% 
+  ggplot(aes(x = value_at_risk)) +
+  geom_histogram()
+
+```
+
+
+
+I want to use ‘Value at Risk’, ‘frequency’, and ‘datevalue’ as the inputs and ‘Q20b’ as one dependent variable and in another model ‘Q27c_group’ as the dependent variable
+
+Create model 1
+
+```{r}
+mod_formula <- "ordered(Q20b) ~ value_at_risk + frequency + datevalue"
+
+# don't use this because the variables are so messed up
+
+# mod1 <- brm(formula = mod_formula,
+#             family = cumulative("logit"),
+#             data = df,
+#             cores = parallel::detectCores())
+
+```
+
+
+```{r}
+
+# data_folder <- "G:/My Drive/AK Faculty/Service/Graduate student committees/Kase Poling/"
+# file_name <- "kase_mod1.rds"
+
+# mod1 %>% write_rds(file = paste0(data_folder, file_name))
+
+
+```
+
+
+
+```{r}
+
+# summary(mod1)
+
+```
+
+Re-try model by standardizing predictors
+
+```{r}
+max(df$value_at_risk)
+var_mean <- mean(df$value_at_risk)
+var_sd <- sd(df$value_at_risk)
+
+date_mean <- mean(df$datevalue)
+date_sd <- sd(df$datevalue)
+
+freq_mean <- mean(df$frequency)
+freq_sd <- sd(df$frequency)
+
+
+df <- df %>% 
+  mutate(var_norm = (value_at_risk - var_mean)/var_sd,
+         date_norm = (datevalue - date_mean)/date_sd,
+         freq_norm = (frequency - freq_mean)/freq_sd)
+
+df %>% 
+  ggplot(aes(x= freq_norm)) +
+  geom_histogram(color = "white")
+
+```
+
+
+
+#### Data exploration
+```{r}
+df %>% 
+  ggplot(aes(x = var_norm)) +
+  geom_histogram(color = "white")
+
+
+```
+
+Too many var_norm values at 0
+
+```{r}
+
+df %>% 
+  filter(var_norm > 0) %>% 
+  count(Q27c_group)
+# there are only 69 students with var_norm above 0
+```
+
+
+```{r}
+df %>% 
+  filter(var_norm > 0) %>% 
+  ggplot(aes(x = var_norm)) +
+  geom_histogram(color = "white")
+
+
+```
+
+
+
+
+
+```{r}
+
+df %>% 
+  dplyr::select(Q27c_group, freq_norm, var_norm, date_norm) %>% 
+  pivot_longer(cols = freq_norm:date_norm, names_to = "variable_name", values_to = "variable_value") %>% 
+  ggplot(aes(x = variable_value)) +
+  geom_histogram(color = "white") +
+  facet_grid(Q27c_group ~ variable_name, scales = "free")
+
+```
+
+
+
+
+
+
+
+```{r}
+
+mod1_norm <- brm(ordered(Q20b) ~ var_norm + date_norm + freq_norm,
+                 data = df,
+                 family = cumulative("logit"),
+                 cores = parallel::detectCores())
+
+```
+
+
+```{r}
+
+summary(mod1_norm)
+
+```
+
+
+
+```{r}
+
+
+
+param_plot_mod1 <- mod1_norm %>%
+  spread_draws(`b.*`, regex = TRUE) %>% 
+  rename(var_norm = b_var_norm,
+         datevalue_norm = b_date_norm,
+         frequency_norm = b_freq_norm) %>% 
+  pivot_longer(cols = var_norm:frequency_norm, names_to = "parameter", values_to = "parameter_estimate") %>% 
+  ggplot(aes(y = factor(parameter), 
+             x = parameter_estimate)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Parameter Estimates for Ordinal Regression with Standardized Predictors for Q20b",
+       x = "Estimated Value of Parameter Probability Density",
+       y = "Survey Item") +
+  theme_light() +
+  theme(plot.title = element_text(hjust=0.5, size = 10)) +
+  geom_vline(xintercept = 0, color = "black", linetype = "dashed")
+
+param_plot_mod1
+
+```
+
+
+```{r}
+ggsave(filename = paste0("fig_q20b_param_plot_", Sys.Date(),".png"),
+       plot = param_plot_mod1,
+       dpi = 450,
+       width = 8,
+       height = 6)
+```
+
+
+
+
+
+```{r}
+
+df %>% 
+  ggplot(aes(x = Q27c_group)) +
+  geom_histogram(color = "white")
+
+```
+
+
+Create model 2
+
+```{r}
+
+mod2_norm <- brm(ordered(Q27c_group) ~ var_norm + date_norm + freq_norm,
+                 data = df,
+                 family = cumulative("logit"),
+                 cores = parallel::detectCores())
+
+```
+
+
+
+```{r}
+
+summary(mod2_norm)
+
+```
+
+
+```{r}
+
+
+param_plot_mod2 <- mod2_norm %>%
+  spread_draws(`b.*`, regex = TRUE) %>% 
+  rename(var_norm = b_var_norm,
+         datevalue_norm = b_date_norm,
+         frequency_norm = b_freq_norm) %>% 
+  pivot_longer(cols = var_norm:frequency_norm, names_to = "parameter", values_to = "parameter_estimate") %>% 
+  ggplot(aes(y = factor(parameter), 
+             x = parameter_estimate)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Parameter Estimates for Ordinal Regression with Standardized Predictors for Q27c_group",
+       x = "Estimated Value of Parameter Probability Density",
+       y = "Survey Item") +
+  theme_light() +
+  theme(plot.title = element_text(hjust=0.5, size = 10)) +
+  geom_vline(xintercept = 0, color = "black", linetype = "dashed")
+
+param_plot_mod2
+
+```
+
+
+
+```{r}
+
+
+ggsave(filename = paste0("fig_q27c_param_plot_", Sys.Date(),".png"),
+       plot = param_plot_mod2,
+       dpi = 450,
+       width = 8,
+       height = 6)
+
+```
+
+
+
+
+
+#### Model using polr from MASS package
+
+https://stats.idre.ucla.edu/r/dae/ordinal-logistic-regression/
+
+```{r}
+
+df <- df %>% 
+  mutate(Q27c_group = as_factor(Q27c_group))
+
+mod2_polr <- polr(Q27c_group ~ var_norm + date_norm + freq_norm,
+                  data = df, Hess = TRUE)
+
+```
+
+
+```{r}
+summary(mod2_polr)
+```
+
+
+```{r}
+
+(ctable <- coef(summary(mod2_polr)))
+
+```
+
+```{r}
+
+## calculate and store p values
+p <- pnorm(abs(ctable[, "t value"]), lower.tail = FALSE) * 2
+
+## combined table
+(ctable <- cbind(ctable, "p value" = p))
+
+```
+
+```{r}
+
+
+(ci <- confint(mod2_polr)) # default method gives profiled CIs
+```
+
+```{r}
+
+## odds ratios
+exp(coef(mod2_polr))
+
+```
+
+```{r}
+
+exp(cbind(OR = coef(mod2_polr), ci))
+
+```
+
+
+
+Test proportional odds assumption
+
+```{r}
+df %>% 
+  count(Q27c_group)
+
+```
+
+
+```{r}
+df %>% 
+  count(Q20b)
+
+```
+
+
+```{r}
+sf <- function(y) {
+  c('Y>=0' = qlogis(mean(y >= 0)),
+    'Y>=1' = qlogis(mean(y >= 1)),
+    'Y>=2' = qlogis(mean(y >= 2)))
+}
+```
+
+
+```{r}
+
+(s <- with(df, summary(as.numeric(Q27c_group) ~ var_norm + freq_norm + date_norm, fun=sf)))
+
+
+```
+
+```{r}
+
+glm(I(as.numeric(Q27c_group) >= 1) ~ var_norm, family="binomial", data = df)
+
+```
+
+
+
+
+
+
+
+
+
+
+

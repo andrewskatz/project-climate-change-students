@@ -1,0 +1,444 @@
+---
+title: "clustering_exp"
+author: "Katz"
+date: "8/6/2020"
+output: word_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+
+
+```{r}
+
+library(RColorBrewer)
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(knitr)
+library(purrr)
+
+
+```
+
+
+
+
+```{r}
+
+climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/updated_climate_df_2.csv")
+
+
+
+## Add in major as string instead of number
+
+climate_df <- climate_df %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"))
+
+
+```
+
+
+
+
+Drop NAs for specific questions and filter out disciplines with fewer than 30 (the cutoff) students in sample
+
+```{r}
+
+
+Q27_vars <- paste0("Q27", letters[1:9])
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+climate_df <- climate_df %>% drop_na(Q29, Q18k, Q20a, Q20b, Q20d, Q18k, Q22) %>% 
+  drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j) %>% 
+  drop_na(Q24a, Q24b, Q24c, Q24d, Q24e, Q24f, Q24g, Q24h, Q24i, Q24j, Q24k) %>% 
+  drop_na(Q25a, Q25b, Q25c) %>% 
+  drop_na(Q26a, Q26b, Q26c, Q26d, Q26e, Q26f, Q26g, Q26h) %>%
+  drop_na(Q27_vars) %>% 
+  drop_na(Q28_vars)
+
+climate_df %>% count(Q29, sort = TRUE)
+
+#cutoff <- 30
+
+
+climate_df <- climate_df %>% 
+  add_count(Q29, name = "major_count") %>% 
+  filter(major_count > 30)
+
+
+climate_df %>% count(Q29, sort = TRUE)
+
+count_tbl <- climate_df %>% count(Q29, major, sort = TRUE)
+
+```
+
+
+
+
+## UMAP experiments
+
+First perform dimension reduction using UMAP
+```{r}
+climate_27_tri_df <- drop_na(climate_27_tri_df)
+
+last_letter <- 9
+Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+
+
+# create custom settings for umap
+custom.settings = umap.defaults
+#custom.settings$n_neighbors = 30
+custom.settings$n_components = 3
+
+## 30 neighbors seems to work well
+
+
+climate_27_tri_umap_exp <- climate_27_tri_df %>% 
+  select(Q27_tri_num_vars) %>% 
+  umap(random_state = 123, config = custom.settings)
+
+
+climate_27_tri_umap_exp
+```
+
+
+
+```{r}
+#names(climate_27_tri_umap$layout)
+names(climate_27_tri_umap$layout) <- c("dim1", "dim2")
+
+head(climate_27_tri_umap$layout[,1])
+head(climate_27_tri_umap$layout[,2])
+
+# visualize the reduction 
+plot(climate_27_tri_umap$layout[,1], climate_27_tri_umap$layout[,2])
+
+plot_df <- climate_27_tri_umap_exp$layout
+plot_df <- as_tibble(plot_df)
+names(plot_df) <- c("dim1", "dim2")
+ggplot(data = plot_df, aes(x = dim1, y = dim2)) +
+  geom_point()
+```
+
+
+```{r}
+
+umap_layout_df <- climate_27_tri_umap_exp$layout
+umap_layout_df <- as_tibble(umap_layout_df)
+
+
+hdbscan_umap_cl <- hdbscan(umap_layout_df, minPts = 40) 
+# groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+
+hdbscan_umap_cl
+
+
+# add the cluster labels back to the original data set
+climate_27_tri_df$cluster_exp <- hdbscan_umap_cl$cluster
+
+```
+
+### Plot the views
+
+```{r}
+
+climate_27_tri_df %>%
+  filter(cluster_exp != 0) %>% 
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>%
+  mutate(cluster_exp = as_factor(cluster_exp)) %>% 
+  ggplot(aes(x = survey_item)) +
+  geom_bar(aes(fill = as_factor(response))) +
+  facet_wrap(.~ cluster_exp, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "When will global warming affect this population?",
+       y = "Count",
+       title = "Cluster patterns of when will global warming affect various populations",
+       fill = "Response") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = c("#ec3434", "#f7c035", "#007030"), 
+                    name = "Response", 
+                    labels = c("0" = "0-10 yrs", "1" = "25-50y yrs", "2" = "Never")) +
+  scale_x_discrete(labels = c('Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment")) + 
+  coord_flip()
+
+```
+
+
+
+
+```{r}
+
+# practice with map and pmap
+
+start_num <- 10
+end_num <- 50
+by <- 5
+
+mu <- rep(seq_along(1:5), times = (end_num - start_num)/by +1)
+sigma <- rep(seq_along(1:5), times = (end_num - start_num)/by +1)
+samp_size <- seq(from = start_num, to = end_num, by = 5)
+n <- rep(samp_size, each = 5)
+param_tbl <- tibble(mu = mu, sigma = sigma, n = n)
+
+param_list <- list(mean = mu, sd = sigma, n = n)
+
+num_list <- pmap(param_list, rnorm)
+
+plot_list <- map(.x = num_list, .f = ~hist(.x))
+
+
+```
+
+
+
+```{r}
+
+# create dataframe of parameters to search over
+
+n_nei_params <- seq(from = 10, to = 100, by = 45)
+n_comp_params <- seq(from = 2, to = 3)
+hdbscan_min_pts_params <- seq(from = 40, to = 140, by = 50)
+
+param_total <- length(n_nei_params) * length(n_comp_params) * length(hdbscan_min_pt_params)
+
+
+n_nei <- rep(n_nei_params, each = param_total / length(n_nei_params))
+n_comp <- rep(n_comp_params, each = param_total / length(n_comp_params))
+
+hdbscan_min_pts <- rep(hdbscan_min_pt_params, each = param_total / length(hdbscan_min_pt_params))
+
+param_tbl <- tibble(n_nei, n_comp, hdbscan_min_pts)
+
+param_list <- list(n_components = n_comp, n_neighbors = n_nei, min_pts = hdbscan_min_pts)
+
+
+```
+
+
+
+```{r}
+
+for (i in n_nei_params){
+  for (j in n_comp_params){
+    for (k in hdbscan_min_pts_params){
+      temp_climate_27_tri_df <- drop_na(climate_27_tri_df)
+
+      last_letter <- 9
+      
+      Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+      
+      
+      param_combo <- paste("nei", as.character(i), 
+                           "comp", as.character(j), 
+                           "minpts", as.character(k), 
+                           sep = "_")
+      
+      print(param_combo)
+     
+      
+
+    }
+  }
+}
+
+
+```
+
+
+
+```{r}
+
+plot_list$nei_10_comp_2_minpts_40
+
+```
+
+
+
+```{r}
+
+# loop over the paramaeters
+
+plot_list <- list()
+
+for (i in n_nei){
+  for (j in n_comp){
+    
+    
+      temp_climate_27_tri_df <- drop_na(climate_27_tri_df)
+
+      last_letter <- 9
+      
+      Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+      
+
+      # create custom settings for umap
+      custom.settings = umap.defaults
+      #custom.settings$n_neighbors = 30
+      custom.settings$n_neighbors = i
+      custom.settings$n_components = j
+      
+      ## 30 neighbors seems to work well
+      
+      
+      climate_27_tri_umap_exp <- temp_climate_27_tri_df %>% 
+        select(Q27_tri_num_vars) %>% 
+        umap(random_state = 123, config = custom.settings)
+      
+      
+      climate_27_tri_umap_exp
+      
+      
+      umap_layout_df <- climate_27_tri_umap_exp$layout
+      umap_layout_df <- as_tibble(umap_layout_df)
+    
+    
+    
+    
+    for (k in hdbscan_min_pts){
+      
+      
+      param_combo <- paste("nei", as.character(i), 
+                     "comp", as.character(j), 
+                     "minpts", as.character(k), 
+                     sep = "_")
+      
+      
+      hdbscan_umap_cl <- hdbscan(umap_layout_df, minPts = k) 
+      # groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+      
+      hdbscan_umap_cl
+      
+      
+      # add the cluster labels back to the original data set
+      temp_climate_27_tri_df$cluster_exp <- hdbscan_umap_cl$cluster
+      
+      
+      
+      p <- temp_climate_27_tri_df %>%
+        filter(cluster_exp != 0) %>% 
+        pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, 
+                     names_to = "survey_item", 
+                     values_to = "response") %>%
+        mutate(cluster_exp = as_factor(cluster_exp)) %>% 
+        ggplot(aes(x = survey_item)) +
+        geom_bar(aes(fill = as_factor(response))) +
+        facet_wrap(.~ cluster_exp, 
+                   scales = "free",
+                   labeller = labeller(survey_item = q27_labs)) +
+        theme_bw() +
+        labs(x = "When will global warming affect this population?",
+             y = "Count",
+             title = "Cluster patterns of when will global warming affect various populations",
+             fill = "Response") +
+        theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+        scale_fill_manual(values = c("#ec3434", "#f7c035", "#007030"), 
+                          name = "Response", 
+                          labels = c("0" = "0-10 yrs", "1" = "25-50y yrs", "2" = "Never")) +
+        scale_x_discrete(labels = c('Q27a_tri_num' = "Me personally",
+        "Q27b_tri_num" = "My family",
+        "Q27c_tri_num" = "People in my comm.",
+        "Q27d_tri_num" = "People in US",
+        "Q27e_tri_num" = "Other indust. countr.",
+        "Q27f_tri_num" = "Developing countries",
+        "Q27g_tri_num" = "Plant + animal species",
+        "Q27h_tri_num" = "World's poor",
+        "Q27i_tri_num" = "Natural environment")) + 
+        coord_flip()
+           
+      plot_list[[param_combo]] <- p 
+
+          }
+  }
+}
+
+```
+
+
+
+
+```{r}
+
+
+
+iwalk(plot_list, ~{
+  ggsave(.x, filename = .y, device = "png", width = 12, height = 6, dpi = 300, unit = "in")
+})
+
+
+
+getwd()
+
+# rm(plot_list)
+# rm(p)
+# rm(param_combo)
+# rm(temp_climate_27_tri_df)
+```
+
+
+
+```{r}
+
+param_results <- pmap(.l = param_list, .f = ~ climate_27_tri_df <- drop_na(climate_27_tri_df)
+
+last_letter <- 9
+Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+
+
+# create custom settings for umap
+custom.settings = umap.defaults
+#custom.settings$n_neighbors = 30
+custom.settings$n_components = 3
+
+## 30 neighbors seems to work well
+
+
+climate_27_tri_umap_exp <- climate_27_tri_df %>% 
+  select(Q27_tri_num_vars) %>% 
+  umap(random_state = 123, config = custom.settings)
+
+
+climate_27_tri_umap_exp
+)
+
+```
+
+

@@ -1,0 +1,1239 @@
+---
+title: "Q16abce_modeling"
+author: "Katz et al."
+date: "6/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+library(psych)
+library(tidyverse)
+library(tidymodels)
+library(ranger)
+library(purrrlyr)
+library(purrr)
+library(randomForest)
+library(pander)
+library(kableExtra)
+library(knitr)
+
+library(mice)
+
+library(brms)
+library(tidybayes)
+library(sjPlot)
+
+```
+
+
+
+Script for creating random forests for Q5 and Q16
+
+```{r}
+setwd("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering")
+
+# climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/updated_climate_df_2.csv")
+
+
+#original data set
+#climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/climate_data.csv")
+
+# read in the imputed dataset
+climate_imp_long_full <- read_csv("climate_imp_long_40_full_inf_cl_hdb_agg_20210518.csv")
+```
+
+
+```{r}
+pub_ds_ver <- 1
+climate_data <- climate_imp_long_full %>% filter(.imp == pub_ds_ver)
+
+
+
+```
+
+Q14d "When problem solving I focus on the relationship between issues
+```{r}
+climate_data %>% 
+  count(Q14d)
+```
+
+
+
+
+
+# Create a new dataframe for the random forest work
+
+Perform EFA for Q28
+
+```{r}
+
+
+
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+Q28_df <- climate_data %>% drop_na(Q28_vars) %>% select(Q28_vars)
+
+Q28_fa <- fa(Q28_df, nfactors = 2, fm = "ml", rotate = "oblimin")
+print(Q28_fa, cut = 0.3, digits = 3)
+# use `print(fa, digits = 3)` to view FLs < .3
+
+```
+
+Calculate Cronbach's alpha for internal consistency reliability
+
+```{r}
+
+
+FA1 <- c("Q28a", "Q28f", "Q28g", "Q28h", "Q28i", "Q28k")
+FA2 <- c("Q28c", "Q28d", "Q28e", "Q28j", "Q28l")
+
+alpha.fa1 <- psych::alpha(Q28_df[FA1])
+print(alpha.fa1, digits = 3) #0.91
+
+alpha.fa2 <- psych::alpha(Q28_df[FA2])
+print(alpha.fa2, digits = 3) #0.80
+
+
+```
+
+
+
+Add variables for Q28_tech_norm ((Q28a + Q28f + Q28g + Q28h + Q28i + Q28k) / 6) and Q28_social_norm ((Q28c + Q28d + Q28e + Q28j + Q28l) / 5)
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+```
+
+
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q16abce = Q16a + Q16b + Q16c + Q16e)
+
+```
+
+
+From ordinal regression forest with Q16a as outcome, top predictors are:
+
+
+
+
+# Bayesian modeling
+
+
+
+Top variables from Ordinal Forest
+Q18c
+Q20d
+Q18e
+Q17f
+Q18i
+Q12defghi_norm
+Q18k
+Q18a
+
+
+
+
+
+### Method using Bayesian ordinal regression
+
+
+Add major column back to replace Q29 in regression models
+
+```{r}
+climate_data <- climate_data %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"),
+         major = as_factor(major))
+
+```
+
+
+```{r}
+
+
+str(climate_data$major)
+
+# set reference discipline
+
+climate_data$major <- fct_relevel(climate_data$major, "Mec") 
+
+str(climate_data$major)
+
+```
+
+
+
+```{r}
+priors1 <- set_prior("normal(0, 1)", class = "b")
+```
+
+
+
+
+
+
+
+
+
+# Modeling outcome as function of design thinking self-report and design course activities
+
+
+Items to include as predictors: 
+Q8b, Q8d, Q8e, Q8f, Q8g, Q8h, 
+Q14a, Q14b, Q14c, Q14d, Q14e, Q14f, Q14g, 
+Q18e, Q18f
+
+
+## Need to relevel the predictors
+Question 8 options
+1 = “Never”, 2 = “Rarely”, 3 = “Monthly”, 4 = “Weekly”, 5 = “Daily”
+
+```{r}
+# First, create new variables that use text rather than numbers to indicate students' responses
+
+climate_data <- climate_data %>% 
+  mutate(Q8b_ord = case_when(Q8b == 1 ~ "Never",
+                         Q8b == 2 ~ "Rarely",
+                         Q8b == 3 ~ "Monthly",
+                         Q8b == 4 ~ "Weekly",
+                         Q8b == 5 ~ "Daily"),
+         Q8d_ord = case_when(Q8d == 1 ~ "Never",
+                         Q8d == 2 ~ "Rarely",
+                         Q8d == 3 ~ "Monthly",
+                         Q8d == 4 ~ "Weekly",
+                         Q8d == 5 ~ "Daily"),
+         Q8e_ord = case_when(Q8e == 1 ~ "Never",
+                         Q8e == 2 ~ "Rarely",
+                         Q8e == 3 ~ "Monthly",
+                         Q8e == 4 ~ "Weekly",
+                         Q8e == 5 ~ "Daily"),
+         Q8f_ord = case_when(Q8f == 1 ~ "Never",
+                         Q8f == 2 ~ "Rarely",
+                         Q8f == 3 ~ "Monthly",
+                         Q8f == 4 ~ "Weekly",
+                         Q8f == 5 ~ "Daily"),
+         Q8g_ord = case_when(Q8g == 1 ~ "Never",
+                         Q8g == 2 ~ "Rarely",
+                         Q8g == 3 ~ "Monthly",
+                         Q8g == 4 ~ "Weekly",
+                         Q8g == 5 ~ "Daily"),
+         Q8h_ord = case_when(Q8h == 1 ~ "Never",
+                         Q8h == 2 ~ "Rarely",
+                         Q8h == 3 ~ "Monthly",
+                         Q8h == 4 ~ "Weekly",
+                         Q8h == 5 ~ "Daily")
+         )
+
+
+```
+
+Question 14
+Q14a, Q14b, Q14c, Q14d, Q14e, Q14f, Q14g
+Question 14 options
+0 = “Strongly disagree”, 4 = “Strongly agree”, 
+
+Question 18
+Q18e, Q18f
+Question 18 options
+0 = “Strongly disagree”, 4 = “Strongly agree”, 
+```{r}
+
+climate_data %>% count(Q14a)
+
+climate_data <- climate_data %>% 
+  mutate(Q14a_ord = case_when(Q14a == 0 ~ "Strongly disagree",
+                              Q14a == 1 ~ "Disagree",
+                              Q14a == 2 ~ "Neutral",
+                              Q14a == 3 ~ "Agree",
+                              Q14a == 4 ~ "Strongly agree"),
+         Q14b_ord = case_when(Q14b == 0 ~ "Strongly disagree",
+                              Q14b == 1 ~ "Disagree",
+                              Q14b == 2 ~ "Neutral",
+                              Q14b == 3 ~ "Agree",
+                              Q14b == 4 ~ "Strongly agree"),
+         Q14c_ord = case_when(Q14c == 0 ~ "Strongly disagree",
+                              Q14c == 1 ~ "Disagree",
+                              Q14c == 2 ~ "Neutral",
+                              Q14c == 3 ~ "Agree",
+                              Q14c == 4 ~ "Strongly agree"),
+         Q14d_ord = case_when(Q14d == 0 ~ "Strongly disagree",
+                              Q14d == 1 ~ "Disagree",
+                              Q14d == 2 ~ "Neutral",
+                              Q14d == 3 ~ "Agree",
+                              Q14d == 4 ~ "Strongly agree"),
+         Q14e_ord = case_when(Q14e == 0 ~ "Strongly disagree",
+                              Q14e == 1 ~ "Disagree",
+                              Q14e == 2 ~ "Neutral",
+                              Q14e == 3 ~ "Agree",
+                              Q14e == 4 ~ "Strongly agree"),
+         Q14f_ord = case_when(Q14f == 0 ~ "Strongly disagree",
+                              Q14f == 1 ~ "Disagree",
+                              Q14f == 2 ~ "Neutral",
+                              Q14f == 3 ~ "Agree",
+                              Q14f == 4 ~ "Strongly agree"),
+         Q14g_ord = case_when(Q14g == 0 ~ "Strongly disagree",
+                              Q14g == 1 ~ "Disagree",
+                              Q14g == 2 ~ "Neutral",
+                              Q14g == 3 ~ "Agree",
+                              Q14g == 4 ~ "Strongly agree"),
+         Q18e_ord = case_when(Q18e == 0 ~ "Strongly disagree",
+                              Q18e == 1 ~ "Disagree",
+                              Q18e == 2 ~ "Neutral",
+                              Q18e == 3 ~ "Agree",
+                              Q18e == 4 ~ "Strongly agree"),
+         Q18f_ord = case_when(Q18f == 0 ~ "Strongly disagree",
+                              Q18f == 1 ~ "Disagree",
+                              Q18f == 2 ~ "Neutral",
+                              Q18f == 3 ~ "Agree",
+                              Q18f == 4 ~ "Strongly agree"))
+
+
+```
+
+
+
+
+```{r}
+
+climate_data %>% count(Q14g)
+climate_data %>% count(Q14g_ord)
+
+```
+
+
+
+```{r}
+str(climate_data$Q8b_ord)
+Q8_ord_vars <- c("Q8b_ord", "Q8d_ord", "Q8e_ord", "Q8f_ord", "Q8g_ord", "Q8h_ord")
+Q8_levels <- c("Never", "Rarely", "Monthly", "Weekly", "Daily")
+
+Q14_ord_vars <- c("Q14a_ord", "Q14b_ord", "Q14c_ord", "Q14d_ord", "Q14e_ord", "Q14f_ord", "Q14g_ord")
+Q14_levels <- c("Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree")
+
+Q18_ord_vars <- c("Q18e_ord", "Q18f_ord")
+Q18_levels <- c("Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree")
+
+climate_data <- climate_data %>% 
+  mutate_at(Q8_ord_vars, ~factor(., ordered = TRUE, levels = Q8_levels)) %>% 
+  mutate_at(Q14_ord_vars, ~factor(., ordered = TRUE, levels = Q14_levels)) %>% 
+  mutate_at(Q18_ord_vars, ~factor(., ordered = TRUE, levels = Q18_levels))
+
+
+```
+
+
+```{r}
+
+str(climate_data$Q14d_ord)
+
+```
+
+```{r}
+
+climate_data %>% count(Q14d)
+climate_data %>% count(Q14d_ord)
+
+```
+
+
+
+
+#### Data Preparation for multiple imputation
+
+```{r}
+# try converting nested datasets back to a mids object (if working from the nested_imp data)
+# climate_imp_long_full <- nested_imp  %>% select(.imp, data) %>% unnest()
+
+# write this to csv to avoid having to recreate some of the Q6 items with more descriptive titles
+# climate_imp_long_full %>% write_csv(paste0("climate_imp_long_hc_cl_full_40_acad_", Sys.Date(), ".csv"))
+
+
+# or reading in from saved version
+
+## version with hdbscan clusters
+# climate_imp_long_full <- read_csv("climate_imp_long_cl_full_40_2021-05-01.csv") 
+
+## version with agglomerative clusters
+climate_imp_long_full <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering/climate_imp_long_hc_cl_full_40_2021-05-05.csv")
+```
+
+
+```{r}
+# need to get .imp == 0 back to combine into mids object
+climate_imp_csv <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering/climate_imputed_40_2021-05-01.csv")
+climate_imp_csv <- climate_imp_csv %>% filter(.imp == 0)
+```
+
+
+
+
+```{r}
+# convert Q40 to character (may not be necessary if reading in data)
+#climate_imp_csv <- climate_imp_csv %>% mutate(Q40 = as.character(Q40))
+
+# bind imp == 0 (the original incomplete dataset) back to the full imputed, augmented dataset
+```
+
+
+```{r}
+# need to drop Q7a:Q7v from climat_imp_csv because they get imported as chr instead of dbl
+climate_imp_csv <- climate_imp_csv %>%
+  select(-(Q7a:Q7v))
+
+```
+
+
+```{r}
+test_bind <- bind_rows(climate_imp_csv, climate_imp_long_full)
+```
+
+
+```{r}
+# spot check
+# test_bind %>% select(cluster_time_rank) %>% filter(cluster_time_rank == 1)
+# test_bind %>% group_by(.imp) %>% summarize(n = n())
+# test_bind %>% count(student_id) %>% filter(n != 41) 
+
+
+# apparently student with student_id 1982 only shows up in original dataset and not the others
+
+test_bind %>% filter(student_id == 1982) # it looks like they didn't have a Litho or a School
+
+test_bind %>% count(student_id) %>% filter(n == 41) # this has 4363 students
+
+# remove student with student_id 1982 
+test_bind <- test_bind %>% 
+  filter(student_id != 1982)
+
+
+
+# drop a bunch of unnecessary columns (i.e., the ones from IPEDS)
+```
+
+```{r}
+# just to get ipeds_vars
+data_path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/"
+file_name <- "ipeds_inst_char_2018.csv"
+
+school_info <- read_csv(paste0(data_path, file_name))
+
+ipeds_vars <- names(school_info)
+rm(school_info)
+```
+
+
+```{r}
+# drop ipeds
+test_bind <- test_bind %>% 
+  select(-one_of(ipeds_vars))
+
+
+
+```
+
+```{r}
+# drop Q7 individual items
+
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+Q7wt_sum_vars <- paste0("Q7", letters[1:22], "_wt_sum")
+Q7other_vars <- paste0("Q7", letters[1:22], "_other")
+Q7disc_vars <- paste0("Q7", letters[1:22], "_disc_spec")
+Q7eng_ele_vars <- paste0("Q7", letters[1:22], "_eng_ele")
+Q7non_eng_vars <- paste0("Q7", letters[1:22], "_non_eng_ele")
+```
+
+
+```{r}
+test_bind <- test_bind %>% 
+  select(-one_of(Q7other_vars)) %>% 
+  select(-one_of(Q7disc_vars)) %>% 
+  select(-one_of(Q7eng_ele_vars)) %>% 
+  select(-one_of(Q7non_eng_vars))
+
+
+
+```
+
+
+```{r}
+# remove Q10-Q15
+Q1_vars <- paste0("Q1", letters[1:20])
+Q2_vars <- paste0("Q2", letters[1:7])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q4_vars <- paste0("Q4", letters[1:16])
+Q5_vars <- paste0("Q5", letters[1:10])
+Q6_vars <- paste0("Q6", letters[1:11])
+  
+
+
+Q10_vars <- paste0("Q10", letters[1:9])
+Q11_vars <- paste0("Q11", letters[1:14])
+Q12_vars <- paste0("Q12", letters[1:9])
+Q13_vars <- paste0("Q13", letters[1:7])
+Q14_vars <- paste0("Q14", letters[1:7])
+Q15_vars <- paste0("Q15", letters[1:15])
+
+Q19_vars <- paste0("Q19", letters[1:8])
+Q20_vars <- paste0("Q20", letters[1:5])
+Q21_vars <- paste0("Q21", letters[1:6])
+Q24_vars <- paste0("Q24", letters[1:11])
+Q23_vars <- paste0("Q23", letters[1:10])
+
+```
+
+
+```{r}
+test_bind <- test_bind %>% 
+  select(-one_of(Q1_vars)) %>% 
+  select(-one_of(Q2_vars)) %>% 
+  select(-one_of(Q3_vars)) %>% 
+  select(-one_of(Q4_vars)) %>% 
+  select(-one_of(Q5_vars)) %>%
+  select(-one_of(Q6_vars)) %>% 
+  select(-one_of(Q10_vars)) %>% 
+  select(-one_of(Q11_vars)) %>% 
+  select(-one_of(Q12_vars)) %>% 
+  select(-one_of(Q13_vars)) %>% 
+  select(-one_of(Q19_vars)) %>% 
+  select(-one_of(Q20_vars)) %>% 
+  select(-one_of(Q21_vars)) %>% 
+  select(-one_of(Q23_vars)) %>% 
+  select(-one_of(Q24_vars)) %>% 
+  select(-one_of(Q15_vars))
+
+
+
+```
+
+
+Add variables for Q28_tech_norm ((Q28a + Q28f + Q28g + Q28h + Q28i + Q28k) / 6) and Q28_social_norm ((Q28c + Q28d + Q28e + Q28j + Q28l) / 5)
+```{r}
+
+test_bind <- test_bind %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+```
+
+
+```{r}
+
+test_bind <- test_bind %>% 
+  mutate(Q16abce = Q16a + Q16b + Q16c + Q16e)
+
+```
+
+
+
+
+
+
+### Method using Bayesian ordinal regression
+
+
+Add major column back to replace Q29 in regression models
+
+```{r}
+test_bind <- test_bind %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"),
+         major = as_factor(major))
+
+```
+
+
+```{r}
+
+
+str(test_bind$major)
+
+# set reference discipline
+
+test_bind$major <- fct_relevel(test_bind$major, "Mec") 
+
+str(test_bind$major)
+
+```
+
+
+
+```{r}
+
+climate_data %>%
+  #drop_na(Q37) %>% 
+  count(Q37) %>% 
+  summarize(percent = n / sum(n))
+
+```
+
+
+
+# Modeling outcome as function of design thinking self-report and design course activities
+
+
+Items to include as predictors: 
+Q8b, Q8d, Q8e, Q8f, Q8g, Q8h, 
+Q14a, Q14b, Q14c, Q14d, Q14e, Q14f, Q14g, 
+Q18e, Q18f
+
+
+## Need to relevel the predictors
+Question 8 options
+1 = “Never”, 2 = “Rarely”, 3 = “Monthly”, 4 = “Weekly”, 5 = “Daily”
+
+```{r}
+# First, create new variables that use text rather than numbers to indicate students' responses
+
+test_bind <- test_bind %>% 
+  mutate(Q8b_ord = case_when(Q8b == 1 ~ "Never",
+                         Q8b == 2 ~ "Rarely",
+                         Q8b == 3 ~ "Monthly",
+                         Q8b == 4 ~ "Weekly",
+                         Q8b == 5 ~ "Daily"),
+         Q8d_ord = case_when(Q8d == 1 ~ "Never",
+                         Q8d == 2 ~ "Rarely",
+                         Q8d == 3 ~ "Monthly",
+                         Q8d == 4 ~ "Weekly",
+                         Q8d == 5 ~ "Daily"),
+         Q8e_ord = case_when(Q8e == 1 ~ "Never",
+                         Q8e == 2 ~ "Rarely",
+                         Q8e == 3 ~ "Monthly",
+                         Q8e == 4 ~ "Weekly",
+                         Q8e == 5 ~ "Daily"),
+         Q8f_ord = case_when(Q8f == 1 ~ "Never",
+                         Q8f == 2 ~ "Rarely",
+                         Q8f == 3 ~ "Monthly",
+                         Q8f == 4 ~ "Weekly",
+                         Q8f == 5 ~ "Daily"),
+         Q8g_ord = case_when(Q8g == 1 ~ "Never",
+                         Q8g == 2 ~ "Rarely",
+                         Q8g == 3 ~ "Monthly",
+                         Q8g == 4 ~ "Weekly",
+                         Q8g == 5 ~ "Daily"),
+         Q8h_ord = case_when(Q8h == 1 ~ "Never",
+                         Q8h == 2 ~ "Rarely",
+                         Q8h == 3 ~ "Monthly",
+                         Q8h == 4 ~ "Weekly",
+                         Q8h == 5 ~ "Daily")
+         )
+
+
+```
+
+Question 14
+Q14a, Q14b, Q14c, Q14d, Q14e, Q14f, Q14g
+Question 14 options
+0 = “Strongly disagree”, 4 = “Strongly agree”, 
+
+Question 18
+Q18e, Q18f
+Question 18 options
+0 = “Strongly disagree”, 4 = “Strongly agree”, 
+```{r}
+
+test_bind %>% count(Q14a)
+
+test_bind <- test_bind %>% 
+  mutate(Q14a_ord = case_when(Q14a == 0 ~ "Strongly disagree",
+                              Q14a == 1 ~ "Disagree",
+                              Q14a == 2 ~ "Neutral",
+                              Q14a == 3 ~ "Agree",
+                              Q14a == 4 ~ "Strongly agree"),
+         Q14b_ord = case_when(Q14b == 0 ~ "Strongly disagree",
+                              Q14b == 1 ~ "Disagree",
+                              Q14b == 2 ~ "Neutral",
+                              Q14b == 3 ~ "Agree",
+                              Q14b == 4 ~ "Strongly agree"),
+         Q14c_ord = case_when(Q14c == 0 ~ "Strongly disagree",
+                              Q14c == 1 ~ "Disagree",
+                              Q14c == 2 ~ "Neutral",
+                              Q14c == 3 ~ "Agree",
+                              Q14c == 4 ~ "Strongly agree"),
+         Q14d_ord = case_when(Q14d == 0 ~ "Strongly disagree",
+                              Q14d == 1 ~ "Disagree",
+                              Q14d == 2 ~ "Neutral",
+                              Q14d == 3 ~ "Agree",
+                              Q14d == 4 ~ "Strongly agree"),
+         Q14e_ord = case_when(Q14e == 0 ~ "Strongly disagree",
+                              Q14e == 1 ~ "Disagree",
+                              Q14e == 2 ~ "Neutral",
+                              Q14e == 3 ~ "Agree",
+                              Q14e == 4 ~ "Strongly agree"),
+         Q14f_ord = case_when(Q14f == 0 ~ "Strongly disagree",
+                              Q14f == 1 ~ "Disagree",
+                              Q14f == 2 ~ "Neutral",
+                              Q14f == 3 ~ "Agree",
+                              Q14f == 4 ~ "Strongly agree"),
+         Q14g_ord = case_when(Q14g == 0 ~ "Strongly disagree",
+                              Q14g == 1 ~ "Disagree",
+                              Q14g == 2 ~ "Neutral",
+                              Q14g == 3 ~ "Agree",
+                              Q14g == 4 ~ "Strongly agree"),
+         Q18e_ord = case_when(Q18e == 0 ~ "Strongly disagree",
+                              Q18e == 1 ~ "Disagree",
+                              Q18e == 2 ~ "Neutral",
+                              Q18e == 3 ~ "Agree",
+                              Q18e == 4 ~ "Strongly agree"),
+         Q18f_ord = case_when(Q18f == 0 ~ "Strongly disagree",
+                              Q18f == 1 ~ "Disagree",
+                              Q18f == 2 ~ "Neutral",
+                              Q18f == 3 ~ "Agree",
+                              Q18f == 4 ~ "Strongly agree"))
+
+
+```
+
+
+
+
+```{r}
+
+test_bind %>% count(Q14g)
+test_bind %>% count(Q14g_ord)
+
+```
+
+
+
+```{r}
+str(test_bind$Q8b_ord)
+Q8_ord_vars <- c("Q8b_ord", "Q8d_ord", "Q8e_ord", "Q8f_ord", "Q8g_ord", "Q8h_ord")
+Q8_levels <- c("Never", "Rarely", "Monthly", "Weekly", "Daily")
+
+Q14_ord_vars <- c("Q14a_ord", "Q14b_ord", "Q14c_ord", "Q14d_ord", "Q14e_ord", "Q14f_ord", "Q14g_ord")
+Q14_levels <- c("Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree")
+
+Q18_ord_vars <- c("Q18e_ord", "Q18f_ord")
+Q18_levels <- c("Strongly disagree", "Disagree", "Neutral", "Agree", "Strongly agree")
+
+test_bind <- test_bind %>% 
+  mutate_at(Q8_ord_vars, ~factor(., ordered = TRUE, levels = Q8_levels)) %>% 
+  mutate_at(Q14_ord_vars, ~factor(., ordered = TRUE, levels = Q14_levels)) %>% 
+  mutate_at(Q18_ord_vars, ~factor(., ordered = TRUE, levels = Q18_levels))
+
+
+```
+
+
+
+```{r}
+
+test_bind %>% count(Q14d)
+test_bind %>% count(Q14d_ord)
+
+```
+
+
+
+```{r}
+rm(climate_imp_long_full)
+```
+
+
+
+```{r}
+
+# only use 10 imputed datasets instead of 40
+test_bind_2 <- test_bind %>% filter(.imp < 11)
+```
+
+
+
+```{r}
+test_mids <- as.mids(test_bind_2)
+```
+
+Try this source for CFA code
+https://statistics.ohlsen-web.de/multiple-imputation-with-mice/
+
+
+
+```{r}
+
+library("survey")
+library("mice")
+library("mitools")
+library("semTools")
+library("lavaan")
+library("lavaan.survey")
+
+```
+
+
+```{r}
+
+# Create data with missings
+# set.seed(20170110)
+# HSMiss <- HolzingerSwineford1939[,paste("x", 1:9, sep="")]
+# randomMiss <- rbinom(prod(dim(HSMiss)), 1, 0.1)
+# randomMiss <- matrix(as.logical(randomMiss), nrow=nrow(HSMiss))
+# HSMiss[randomMiss] <- NA
+
+# lavaan model
+design.model <- ' feedback  =~ Q14a + Q14g
+integrative =~ Q14c + Q14b
+optimism   =~ Q18e + Q18f
+experimentalism =~ Q14d
+collaboration =~ Q14e + Q14f '
+
+```
+
+
+
+```{r}
+out2 <- runMI(design.model, 
+              data=test_mids,
+              fun="cfa",
+              meanstructure = TRUE)
+```
+
+
+```{r}
+summary(out2)
+```
+
+
+```{r}
+fitMeasures(out2, "all") 
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+
+# take previously imputed data from variant 2 and convert it to svydesign-object
+mice.imp2<-lapply(seq(HSMiss_imp$m),function(im) complete(HSMiss_imp,im))
+mice.imp2<-mitools::imputationList(mice.imp2) 
+svy.df_imp<-survey::svydesign(id=~1,weights=~1,data=mice.imp2)                    #survey-Objekt erstellen 
+
+
+```
+
+
+
+```{r}
+
+lavaan_fit_design.model <- cfa(design.model, meanstructure = TRUE)
+out3 <- lavaan.survey(lavaan_fit_design.model, test_mids)
+summary(out3)
+fitMeasures(out3, "chisq")
+
+```
+
+
+
+
+
+```{r}
+
+q16.model <- ' energy  =~ Q16a + Q16b + Q16c + Q16e'
+
+
+#clim_cha =~ Q16d + Q16f + Q16g
+#defense =~ Q16h + Q16i + Q16j + Q16k 
+#resources =~ Q16l + Q16m
+
+```
+
+
+
+```{r}
+
+out4 <- runMI(q16.model, 
+              data=test_mids,
+              fun="cfa",
+              meanstructure = TRUE)
+
+```
+
+
+
+
+
+```{r}
+
+fitMeasures(out4, "all") 
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Model 0: Testing ordinal predictor
+
+```{r}
+
+mod0_lin_mono_des_Q16abce <- brm(formula = Q16abce ~  mo(Q8b_ord) + mo(Q8d_ord) + mo(Q8e_ord) + mo(Q8f_ord) + mo(Q8g_ord) + mo(Q8h_ord) +mo(Q14a_ord) + mo(Q14b_ord) + mo(Q14c_ord) + mo(Q14d_ord) + mo(Q14e_ord),
+                     data = climate_data,
+                     family = gaussian(),
+                     cores = parallel::detectCores())
+
+
+```
+
+
+
+
+```{r}
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod0_lin_mono_des_Q16abce.rds"
+
+mod0_lin_mono_des_Q16abce %>% write_rds(file = paste0(path, file_name))
+
+
+```
+
+
+
+```{r}
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod0_lin_mono_des_Q16abce.rds"
+
+mod0_lin_mono_des_Q16abce <- read_rds(file = paste0(path, file_name))
+
+
+```
+
+
+```{r}
+tab_model(mod0_lin_mono_des_Q16abce)
+```
+
+
+```{r}
+
+plot(conditional_effects(mod0_lin_mono_des_Q16abce))
+
+```
+
+
+
+
+## Model 1: Summing the Q16 items and then modeling with _ordinal_ monotonic effects for Q8, Q14, and Q18 items
+
+```{r}
+
+mod1_lin_mono_des_Q16abce <- brm(formula = Q16abce ~  mo(Q8b_ord) + mo(Q8d_ord) + mo(Q8e_ord) + mo(Q8f_ord) + mo(Q8g_ord) + mo(Q8h_ord) +mo(Q14a_ord) + mo(Q14b_ord) + mo(Q14c_ord) + mo(Q14d_ord) + mo(Q14e_ord)+ mo(Q14f_ord) + mo(Q14g_ord) + mo(Q18e_ord) + mo(Q18f_ord),
+                     data = climate_data,
+                     family = gaussian(),
+                     cores = parallel::detectCores())
+
+```
+
+
+
+
+```{r}
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod1_lin_mono_des_Q16abce.rds"
+
+mod1_lin_mono_des_Q16abce %>% write_rds(file = paste0(path, file_name))
+
+
+```
+
+
+
+```{r}
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod1_lin_mono_des_Q16abce.rds"
+
+mod1_lin_mono_des_Q16abce <- read_rds(file = paste0(path, file_name))
+
+
+```
+
+
+
+
+### multiple imputation version
+
+```{r}
+
+mod1_lin_mono_des_Q16abce_mi <- brm_multiple(formula = Q16abce ~  mo(Q8b_ord) + mo(Q8d_ord) + mo(Q8e_ord) + mo(Q8f_ord) + mo(Q8g_ord) + mo(Q8h_ord) +mo(Q14a_ord) + mo(Q14b_ord) + mo(Q14c_ord) + mo(Q14d_ord) + mo(Q14e_ord)+ mo(Q14f_ord) + mo(Q14g_ord) + mo(Q18e_ord) + mo(Q18f_ord),
+                     data = test_mids,
+                     family = gaussian(),
+                     cores = parallel::detectCores())
+
+```
+
+
+```{r}
+
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod1_lin_mono_des_Q16abce_mi.rds"
+
+mod1_lin_mono_des_Q16abce_mi %>% write_rds(file = paste0(path, file_name))
+
+
+
+```
+
+
+```{r}
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod1_lin_mono_des_Q16abce_mi.rds"
+
+mod1_lin_mono_des_Q16abce_mi <- read_rds(file = paste0(path, file_name))
+
+```
+
+
+```{r}
+tab_model(mod1_lin_mono_des_Q16abce_mi)
+```
+
+
+
+```{r}
+
+
+param_plot_q16abce_mod1_lin_mi <- mod1_lin_mono_des_Q16abce_mi %>%
+  spread_draws(`b.*`, regex = TRUE) %>% 
+  rename(Q8b = bsp_moQ8b_ord,
+         Q8d = bsp_moQ8d_ord,
+         Q8e = bsp_moQ8e_ord,
+         Q8f = bsp_moQ8f_ord,
+         Q8g = bsp_moQ8g_ord,
+         Q8h = bsp_moQ8h_ord) %>% 
+  pivot_longer(cols = Q8b:Q8h, names_to = "parameter", values_to = "parameter_estimate") %>% 
+  ggplot(aes(y = factor(parameter, levels = c("Q8b", "Q8e", "Q8d", "Q8f", "Q8g", "Q8h")), x = parameter_estimate)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Parameter Estimates for Ordinal Regression with Ordinal Predictors for Q16abce",
+       x = "Estimated Value of Parameter Probability Density",
+       y = "Survey Item") +
+  theme_light() +
+  theme(plot.title = element_text(hjust=0.5, size = 10)) +
+  geom_vline(xintercept = 0, color = "black", linetype = "dashed")
+
+param_plot_q16abce_mod1_lin_mi
+
+```
+
+
+```{r}
+
+ggsave(filename = paste0("fig_q16abce_mod1_Q8_mi_param_plot_mi", Sys.Date(),".png"),
+       plot = param_plot_q16abce_mod1_lin_mi,
+       dpi = 450,
+       width = 8,
+       height = 6)
+
+```
+
+
+
+```{r}
+
+
+param_plot_q16abce_mod1_q14_lin_mi <- mod1_lin_mono_des_Q16abce_mi %>%
+  spread_draws(`b.*`, regex = TRUE) %>% 
+  rename(Q14a = bsp_moQ14a_ord,
+         Q14b = bsp_moQ14b_ord,
+         Q14c = bsp_moQ14c_ord,
+         Q14d = bsp_moQ14d_ord,
+         Q14e = bsp_moQ14e_ord,
+         Q14f = bsp_moQ14f_ord,
+         Q14g = bsp_moQ14g_ord,
+         Q18e = bsp_moQ18e_ord,
+         Q18f = bsp_moQ18f_ord) %>% 
+  pivot_longer(cols = Q14a:Q18f, names_to = "parameter", values_to = "parameter_estimate") %>% 
+  ggplot(aes(y = factor(parameter, levels = c("Q14a", "Q14g", "Q14c", "Q14b", "Q18e", "Q18f", "Q14d", "Q14e", "Q14f")), x = parameter_estimate)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Parameter Estimates for Ordinal Regression with Ordinal Predictors for Q16abce",
+       x = "Estimated Value of Parameter Probability Density",
+       y = "Survey Item") +
+  theme_light() +
+  theme(plot.title = element_text(hjust=0.5, size = 10)) +
+  geom_vline(xintercept = 0, color = "black", linetype = "dashed")
+
+
+param_plot_q16abce_mod1_q14_lin_mi
+
+```
+
+
+
+```{r}
+
+ggsave(filename = paste0("fig_q16abce_mod1_q14_mi_param_plot_", Sys.Date(),".png"),
+       plot = param_plot_q16abce_mod1_q14_lin_mi,
+       dpi = 450,
+       width = 8,
+       height = 6)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+## Model 2: Summing the Q16 items and then modeling with monotonic effects for Q8, Q14, and Q18 items
+** Missing Q14g
+
+```{r}
+
+mod2_lin_des_Q16abce <- brm(formula = Q16abce ~  mo(Q8b) + mo(Q8d) + mo(Q8e) + mo(Q8f) + mo(Q8g) + mo(Q8h) +mo(Q14a) + mo(Q14b) + mo(Q14c) + mo(Q14d) + mo(Q14e)+ mo(Q14f) + mo(Q18e) + mo(Q18f),
+                     data = climate_data,
+                     family = gaussian(),
+                     cores = parallel::detectCores())
+
+```
+
+```{r}
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod2_lin_mono_des_Q16abce.rds"
+
+mod2_lin_des_Q16abce %>% write_rds(file = paste0(path, file_name))
+
+
+```
+
+
+
+```{r}
+
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod2_lin_mono_des_Q16abce.rds"
+
+mod2_lin_mono_des_Q16abce <- read_rds(file = paste0(path, file_name))
+
+
+```
+
+
+
+
+
+```{r}
+
+mod2_lin_mono_des_Q16abce %>%
+  spread_draws(`b.*`, regex = TRUE) %>% 
+  rename(Q14a = bsp_moQ14a_ord,
+         Q14b = bsp_moQ14b_ord,
+         Q14c = bsp_moQ14c_ord,
+         Q14d = bsp_moQ14d_ord,
+         Q14e = bsp_moQ14e_ord,
+         Q14f = bsp_moQ14f_ord,
+         Q14g = bsp_moQ14g_ord,
+         Q18e = bsp_moQ18e_ord,
+         Q18f = bsp_moQ18f_ord) %>% 
+  pivot_longer(cols = Q14a:Q18f, names_to = "parameter", values_to = "parameter_estimate") %>% 
+  ggplot(aes(y = factor(parameter), x = parameter_estimate)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Parameter Estimates for Ordinal Regression with Ordinal Predictors for Q16a",
+       x = "Estimated Value of Parameter Probability Density",
+       y = "Survey Item") +
+  theme_light() +
+  theme(plot.title = element_text(hjust=0.5, size = 10)) +
+  geom_vline(xintercept = 0, color = "black", linetype = "dashed")
+
+```
+
+
+
+
+
+
+```{r}
+climate_data <- climate_data %>% 
+  mutate(Q16abce = Q16a + Q16b + Q16c + Q16e)
+
+
+lm_1 <- lm(Q16abce ~  Q8b + Q8d + Q8e + Q8f + Q8g + Q8h + Q14a + Q14b + Q14c + Q14d + Q14e+ Q14f + Q14g + Q18e + Q18f, data = climate_data)
+
+```
+
+```{r}
+summary(lm_1)
+```
+
+
+

@@ -1,0 +1,905 @@
+---
+title: "Q4c - Helping Others"
+author: "Katz et al."
+date: "6/15/2021"
+output: html_document
+---
+
+
+
+
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(psych)
+library(tidyverse)
+library(tidymodels)
+library(ranger)
+library(purrrlyr)
+library(purrr)
+library(randomForest)
+library(pander)
+library(kableExtra)
+library(knitr)
+
+library(ordinalForest)
+
+```
+
+
+
+Script for creating random forests for Q5 and Q16
+
+```{r}
+setwd("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering")
+
+# climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/updated_climate_df_2.csv")
+
+
+#original data set
+#climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/climate_data.csv")
+
+# read in the imputed dataset
+climate_imp_long_full <- read_csv("climate_imp_long_40_full_inf_cl_hdb_agg_20210518.csv")
+```
+
+
+```{r}
+pub_ds_ver <- 1
+climate_data <- climate_imp_long_full %>% filter(.imp == pub_ds_ver)
+
+rm(climate_imp_long_full)
+
+```
+
+
+
+
+
+
+# Create a new dataframe for the random forest work
+
+Perform EFA for Q28
+
+```{r}
+
+
+
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+Q28_df <- climate_data %>% drop_na(Q28_vars) %>% select(Q28_vars)
+
+Q28_fa <- fa(Q28_df, nfactors = 2, fm = "ml", rotate = "oblimin")
+print(Q28_fa, cut = 0.3, digits = 3)
+# use `print(fa, digits = 3)` to view FLs < .3
+
+```
+
+Calculate Cronbach's alpha for internal consistency reliability
+
+```{r}
+
+
+FA1 <- c("Q28a", "Q28f", "Q28g", "Q28h", "Q28i", "Q28k")
+FA2 <- c("Q28c", "Q28d", "Q28e", "Q28j", "Q28l")
+
+alpha.fa1 <- psych::alpha(Q28_df[FA1])
+print(alpha.fa1, digits = 3) #0.91
+
+alpha.fa2 <- psych::alpha(Q28_df[FA2])
+print(alpha.fa2, digits = 3) #0.80
+
+
+```
+
+
+
+Add variables for Q28_tech_norm ((Q28a + Q28f + Q28g + Q28h + Q28i + Q28k) / 6) and Q28_social_norm ((Q28c + Q28d + Q28e + Q28j + Q28l) / 5)
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+```
+
+
+Perform EFA for Q12
+
+```{r}
+Q12_vars <- paste0("Q12", letters[1:9])
+
+Q12_df <- climate_data %>% drop_na(Q12_vars) %>% select(Q12_vars)
+
+Q12_fa <- fa(Q12_df, nfactors = 2, fm = "ml", rotate = "oblimin")
+print(Q12_fa, cut = 0.3, digits = 3)
+
+```
+
+
+```{r}
+
+FA1 <- c("Q12a", "Q12b", "Q12c")
+FA2 <- c("Q12d", "Q12e", "Q12f", "Q12g", "Q12h", "Q12i")
+
+alpha.fa1 <- psych::alpha(Q12_df[FA1])
+print(alpha.fa1, digits = 3) #0.83
+
+alpha.fa2 <- psych::alpha(Q12_df[FA2])
+print(alpha.fa2, digits = 3) #0.90
+
+```
+
+
+
+Add variables for Q12 factors (Q12abc_norm (a+b+c)/3 and Q12_defghi_norm = (d+e+f+g+h+i)/6)
+
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q12abc = Q12a + Q12b + Q12c,
+         Q12defghi = Q12d + Q12e + Q12f + Q12g + Q12h + Q12i,
+         Q12abc_norm = Q12abc / 3,
+         Q12defghi_norm = Q12defghi / 6)
+
+```
+
+
+
+Perform EFA for Q4
+
+```{r}
+
+
+
+Q4_vars <- paste0("Q4", letters[1:16])
+
+# drop these since they factor together into a two-variable factor
+Q4_drop_vars <- c("Q4d")
+
+
+Q4_df <- climate_data %>% drop_na(Q4_vars) %>% select(Q4_vars) %>% select(-one_of(Q4_drop_vars))
+
+Q4_fa <- fa(Q4_df, nfactors = 3, fm = "ml", rotate = "oblimin")
+print(Q4_fa, cut = 0.3, digits = 3)
+```
+
+
+helping others factor: Q4c, Q4f, Q4l, Q4p
+applying skills: Q4g, Q4h, Q4m, Q4n, Q4o 
+money/job: Q4a, Q4e, Q4i, Q4j
+
+```{r}
+
+FA1 <- c("Q4c", "Q4f", "Q4l", "Q4p")
+FA2 <- c("Q4g", "Q4h", "Q4m", "Q4n", "Q4o")
+FA3 <- c("Q4a", "Q4e", "Q4i", "Q4j")
+
+alpha.fa1 <- psych::alpha(Q4_df[FA1])
+print(alpha.fa1, digits = 3) #0.69
+
+alpha.fa2 <- psych::alpha(Q4_df[FA2])
+print(alpha.fa2, digits = 3) #0.69
+
+alpha.fa3 <- psych::alpha(Q4_df[FA3])
+print(alpha.fa3, digits = 3) #0.5
+
+
+```
+
+
+
+Add variables for Q4 factors (Q12abc_norm (a+b+c)/3 and Q12_defghi_norm = (d+e+f+g+h+i)/6)
+
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q12abc = Q12a + Q12b + Q12c,
+         Q12defghi = Q12d + Q12e + Q12f + Q12g + Q12h + Q12i,
+         Q12abc_norm = Q12abc / 3,
+         Q12defghi_norm = Q12defghi / 6)
+
+```
+
+
+
+
+
+
+Recode variables
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"))
+
+```
+
+
+
+Remove majors with fewer than 30 students and students with NA for major
+
+
+```{r}
+
+
+climate_data %>% count(Q29, sort = TRUE)
+climate_data %>% count(major, sort = TRUE)
+cutoff <- 25
+
+climate_data <- climate_data %>% 
+  add_count(Q29, name = "major_count") %>% 
+  filter(major_count > cutoff) %>% 
+  filter(!is.na(Q29))
+
+climate_data %>% count(Q29, sort = TRUE)
+
+```
+
+
+Fill in Q1, Q3, Q5, Q7, Q39 NAs with 0's (the way they were coded, it's ambiguous if an NA is there intentionally by the participant, so this is a conservative assumption to make that an NA actually corresponds to an intentional omission rather than an accidental omission)
+
+
+```{r}
+# prepraing the data
+# start with the climate_data dataframe
+
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+
+
+#str(climate_data)
+
+### old way to remove disciplines with 
+# rf_df <- climate_data %>% 
+#   filter(!is.na(Q29)) %>% 
+#   filter(Q29 != 15) %>% 
+#   filter(Q29 != 14) %>% 
+#   filter(Q29 != 9) %>% 
+#   filter(Q29 != 2)
+
+rf_df <- climate_data
+
+rf_df %>% group_by(Q29) %>% count()
+
+#rf_df[, Q1_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q1_vars), ~replace_na(., 0))
+#rf_df[, Q1_vars]
+
+#rf_df[, Q3_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+#rf_df[, Q3_vars]
+
+#rf_df[,Q5_vars]
+
+#rf_df[, Q7_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q7_vars), ~ replace_na(., 0))
+#rf_df[,Q7_vars]
+
+#rf_df[, Q35_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q35_vars), ~ replace_na(., 0))
+#rf_df[,Q35_vars]
+
+#rf_df[, Q39_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q39_vars), ~ replace_na(., 0))
+#rf_df[,Q39_vars]
+```
+
+
+Drop individual Q12, Q16, and Q28 items. Q16 items were too similar to Q5 items and Q28 items were factored
+
+```{r}
+Q12_vars <- paste0("Q12", letters[1:9])
+Q16_vars <- paste0("Q16", letters[1:13])
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+# rf_df <- rf_df %>% drop_na(Q12_vars)
+# rf_df <- rf_df %>% drop_na(Q16_vars)
+# rf_df <- rf_df %>% drop_na(Q28_vars)
+
+
+
+```
+
+Turn the variables into factors
+
+```{r}
+# turning variables into factors
+
+
+#rf_df <- dmap(rf_df, as.factor)
+```
+
+
+Remove additional columns that will not feed into the random forest algorithm
+
+```{r}
+
+# remove columns with majority na (noticed from visual inspection)
+removal_vars <- c("School", "Litho", "major", "Q33_", 
+                  "Q37_", "Q38_", "Q39_", "Q40", "abe", "Q16abc", "lm", "dfg", "hijk",
+                  "spec", "other", "tally", "ele", "Q16_bin", "_ind")
+
+# Q13, Q14 were originally on the removal list - not sure why - need to add back in
+
+# consider removing "sum" from the above
+
+removal_vars_start <- paste0("^(", paste(removal_vars, collapse="|"), ")")
+removal_vars_end <- paste0("(", paste(removal_vars, collapse="|"), ")$")
+
+
+# create a dataframe called train_df that we'll use for training the random forests
+train_df <- rf_df %>% dplyr::select(-matches(removal_vars_start))
+train_df <- train_df %>% dplyr::select(-matches(removal_vars_end))
+
+train_df <- train_df %>% 
+  dplyr::select(-Q28_tech, -Q28_social, -Q12abc, -Q12defghi)
+train_df <- train_df %>% dplyr::select(-Q28_vars)
+train_df <- train_df %>% dplyr::select(-Q1_vars)
+
+
+
+# remove the original Q7 vars because they were too messy - use tallies instead
+
+# remove other Q5 variables aside from 5e
+## probably want to change this to Q16 removals
+
+forest_outcome_var <- "Q4c"
+
+Q4_removals <- Q4_vars[Q4_vars != forest_outcome_var]
+# Q16_removals <- c("Q5a","Q5b", "Q5c", "Q5d", "Q5e", "Q5f", "Q5g", "Q5i", "Q5j")
+
+train_df <- train_df %>% dplyr::select(-Q7_vars)
+# train_df <- train_df %>% dplyr::select(-Q5_vars) # drop Q5 vars for Q16 training
+train_df <- train_df %>% dplyr::select(-Q4_removals)
+#train_df <- train_df %>% dplyr::select(-Q16_energy)
+
+factor_vars <- c("Q29", "Q32", "Q37")
+
+train_df <- train_df %>% 
+  mutate_at(factor_vars, as.factor)
+  
+  # mutate(Q29 = as.factor(Q29),
+  #        Q37 = as.factor(Q37))
+
+train_df %>% count(Q4c)
+
+```
+
+
+Remove observations with more than 10% obs missing
+
+```{r}
+# remove rows with too many nas (defined as more than 10% of variables)
+
+# full implementation
+# train_df <- train_df[!rowSums(is.na(train_df)) > ncol(train_df)*.1,] # reduced df by ~47 to 3127
+
+```
+
+
+
+
+Impute data for the remaining cases
+
+```{r}
+
+#train_df_2 <- mice(train_df, maxit = 2, m = 2, seed = 1)
+
+```
+
+```{r}
+# Old method for reading in data
+
+#train_df_2 <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/filtered_climate_survey_20200509.csv")
+```
+
+
+
+
+Create random forest for Q5h with tidymodels framework
+```{r}
+# 
+# set.seed(42)
+
+
+
+
+# looking at specific outcome variables
+# table(train_df$Q5h)
+
+# create train and test split
+# 
+# q5h_split <- train_df %>% 
+#   initial_split(strata = Q5h)
+# 
+# q5h_train <- training(q5h_split) # 2440 x 288
+# q5h_test <- testing(q5h_split) # 812 x 288
+
+
+#check to make sure stratified correctly
+# table(q5h_train$Q5h)
+
+```
+
+
+
+Create the random forest model specification
+```{r}
+
+# rf_spec <- rand_forest(mode = "classification") %>% 
+#   set_engine("ranger")
+# 
+# rf_spec
+
+```
+
+Create the random forest model fit
+
+```{r}
+
+# remove other Q5 variables
+
+
+# rf_fit <- rf_spec %>% 
+#   fit(Q5h ~ ., 
+#       data = q5h_train
+#       )
+# 
+# rf_fit
+
+```
+
+Check for more variables to remove
+```{r}
+# train_df
+```
+
+
+```{r}
+extra_removal_vars <- c(".id", ".imp", "student_id", "full_hdb_cluster", "full_agg_cluster",
+                        "cluster_time_rank_hdb", "cluster_avg_hdb", "cluster_avg_agg",
+                        "dim1", "dim2")
+
+train_df <- train_df %>% 
+  select(-one_of(extra_removal_vars))
+```
+
+
+```{r}
+
+# rf_mod <- randomForest(formula = Q5h ~ ., 
+#                        data = q5h_train,
+#                        ntree = 1000,
+#                        proximity = TRUE,
+#                        na.action = na.roughfix,
+#                        importance = TRUE)
+
+set.seed(42)
+
+
+rf_mod <- randomForest(formula = Q4a ~ ., 
+                       data = train_df,
+                       ntree = 1000,
+                       proximity = TRUE,
+                       na.action = na.roughfix,
+                       importance = TRUE)
+
+
+
+```
+
+
+
+```{r}
+
+imp <- importance(rf_mod, type = 1, scale = F) # permutation importances 
+#(specifying "type = 1" pulls MeanDecreaseAccuracy instead of MeanDecreaseGini)
+
+```
+
+Manual way of collecting variable importance data
+
+```{r}
+
+#row.names(imp)
+featureImportance <- data.frame(Feature = row.names(imp), Importance = imp[,1])
+
+p <- featureImportance %>% 
+  top_n(30, Importance) %>% 
+  ggplot(aes(x = reorder(Feature, -Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "#53cfff", width = 0.65) +
+  coord_flip() + 
+  theme_light(base_size = 20) +
+  theme(axis.title.x = element_text(size = 10, color = "black"),
+        axis.title.y = element_blank(),
+        axis.text.x  = element_text(size = 10, color = "black"),
+        axis.text.y  = element_text(size = 10, color = "black"),
+        plot.title = element_text(size = 10, hjust = 0.5)) +
+  ggtitle("Random Forest Variable Importance for Career Interest in Carbon Dioxide Emissions")
+
+p
+
+
+
+```
+
+
+
+
+Calculate variable importance and plot using permutation
+
+```{r}
+# library(vip)
+
+code_break
+
+
+```
+
+
+
+
+
+## Option 2: Ordinal forest instead of regression forest for Q16c
+
+
+
+
+### Ordinal Forest instead of Regression Random Forest
+
+
+```{r}
+train_df <- train_df %>% 
+  mutate(Q4c = as.ordered(Q4c))
+```
+
+
+```{r}
+
+
+# train_df %>% drop_na(Q32, Q33, Q37)
+
+ord_rf_df <- train_df %>% 
+  select(-one_of("Q30", "Q31", "Q34", "Q35", "Q36a", "Q36b", "Q38", Q39_vars, "Q40")) %>% 
+  drop_na(Q32, Q33, Q37)
+```
+
+
+```{r}
+
+set.seed(42)
+
+ord_rf_df %>% select(Q4c)
+
+ord_rf_df <- as.data.frame(ord_rf_df)
+# default mtry
+rf_mod_ord <- ordfor(depvar = "Q4c", 
+                     data = ord_rf_df, 
+                     perffunction = "proportional")
+
+
+```
+
+
+
+#### Identify top 30 most important variables for ordinal prediction
+
+```{r}
+# sort(rf_mod_ord$varimp, decreasing=TRUE)
+
+var_imp <- rf_mod_ord$varimp
+# var_imp
+# names(var_imp)
+
+var_imp_df <- tibble(variable = names(var_imp),
+                     var_importance = var_imp)
+
+```
+
+For ordinal forest variable importance measures
+
+```{r}
+
+p <- var_imp_df %>% 
+  top_n(30, var_importance) %>% 
+  ggplot(aes(x = reorder(variable, -var_importance), y = var_importance)) +
+  geom_bar(stat = "identity", fill = "#53cfff", width = 0.65) +
+  coord_flip() + 
+  theme_light() +
+  labs(x = "Variable",
+       y = "Variable Importance") +
+  theme(axis.title.x = element_text(size = 10, color = "black"),
+        # axis.title.y = element_blank(),
+        axis.text.x  = element_text(size = 10, color = "black"),
+        axis.text.y  = element_text(size = 10, color = "black"),
+        plot.title = element_text(size = 10, hjust = 0.5)) +
+  ggtitle("Ordinal Forest Variable Importance for Importance of Helping People in Career Satisfaction")
+
+p
+
+```
+
+
+```{r}
+
+```
+
+
+
+## Create logistic regression model with Q16c (address climate change in career) and the following predictors:
+
+Top variables from Regression Forest
+
+
+
+Top variables from Ordinal Forest
+
+Q10b
+Q2a
+Q2b
+Q2d
+Q10f
+Q12defghi_norm
+Q16k
+cluster_time_rank_agg
+
+
+
+
+### Method using Bayesian ordinal regression
+
+
+Add major column back to replace Q29 in regression models
+
+```{r}
+train_df <- train_df %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"),
+         major = as_factor(major))
+
+```
+
+
+```{r}
+
+
+str(train_df$major)
+
+# set reference discipline
+
+train_df$major <- fct_relevel(train_df$major, "Mec") 
+
+str(train_df$major)
+
+```
+
+
+
+# Modeling Q4a as outcome
+
+## Model 1: linear predictors
+
+
+```{r}
+setwd("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering")
+
+# climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/updated_climate_df_2.csv")
+
+
+#original data set
+#climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/climate_data.csv")
+
+# read in the imputed dataset
+climate_imp_long_full <- read_csv("climate_imp_long_40_full_inf_cl_hdb_agg_20210518.csv")
+```
+
+
+```{r}
+pub_ds_ver <- 1
+climate_data <- climate_imp_long_full %>% filter(.imp == pub_ds_ver)
+
+rm(climate_imp_long_full)
+
+climate_data %>% select(cluster_time_rank_agg, full_agg_cluster)
+
+```
+
+
+
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q12abc = Q12a + Q12b + Q12c,
+         Q12defghi = Q12d + Q12e + Q12f + Q12g + Q12h + Q12i,
+         Q12abc_norm = Q12abc / 3,
+         Q12defghi_norm = Q12defghi / 6)
+
+```
+
+
+```{r}
+priors1 <- set_prior("normal(0, 1)", class = "b")
+```
+
+
+```{r}
+# no priors
+mod1_ord_Q4a <- brm(formula = ordered(Q4a) ~ Q10b + Q2a + Q2b + Q2d + Q10f + Q12defghi_norm + Q16k + cluster_time_rank_agg,
+                     data = climate_data,
+                     # prior = priors1,
+                     family = cumulative("logit"),
+                     cores = parallel::detectCores())
+
+
+
+
+```
+
+```{r}
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q4/"
+
+file_name <- "mod1_ord_Q4a.rds"
+
+mod1_ord_Q4a %>% write_rds(file = paste0(path, file_name))
+```
+
+```{r}
+
+mod1_ord_Q16c <- read_rds(file = paste0(path, file_name))
+
+```
+
+
+
+```{r}
+
+summary(mod1_ord_Q4a)
+
+# coef(mod1_ord_Q16c)
+fixef(mod1_ord_Q4a)
+
+```
+
+```{r}
+get_variables(mod1_ord_Q4a)
+```
+
+
+```{r}
+stanplot(mod1_ord_Q4a, pars = c("^r_", "^b_", "^sd_")) +
+  theme_light() +
+  theme(axis.text.y = element_text(hjust = 0))
+```
+
+
+```{r}
+mod1_ord_Q4a %>%
+  spread_draws(`b_.*`[i], regex = TRUE) %>%
+  ggplot(aes(y = factor(i), x = b_Intercept)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Intercept Estimates for Orginal Regression with Environmental Topics",
+       x = "Parameter Estimate",
+       y = "Cluster cutoff point") +
+  theme(plot.title = element_text(hjust=0.5))
+
+```
+
+
+```{r}
+mod1_ord_Q4a %>%
+  spread_draws(`b_.*`, regex = TRUE) %>%
+  pivot_longer(cols = b_Q10b:b_cluster_time_rank_agg, names_to = "parameter", values_to = "parameter_estimate") %>% 
+  ggplot(aes(y = factor(parameter), x = parameter_estimate)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Intercept Estimates for Orginal Regression with Career Satisfaction - Making Money",
+       x = "Parameter Estimate",
+       y = "Cluster cutoff point") +
+  theme(plot.title = element_text(hjust=0.5, size = 10))
+
+```
+
+
+
+
+```{r}
+
+mod1_ord_Q16c %>%
+  spread_draws(r_major[major,i]) %>%
+  ggplot(aes(y = factor(major), x = r_major)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  facet_grid(major ~ i, scales = "free") +
+  labs(title = "Intercept Estimates for Ordinal Regression with Environmental Topics",
+       x = "Parameter Estimate",
+       y = "Cluster cutoff point") +
+  theme(plot.title = element_text(hjust=0.5))
+
+
+```
+
+
+
+
+
+
+## Option 2: Ordinal model with monotonic effects
+
+
+```{r}
+
+mod1_ord_mono_Q16c <- brm(formula = ordered(Q16c) ~ mo(Q18c) + mo(Q20d) + mo(Q18k) + mo(Q18e) + 
+                       mo(Q17f) + mo(Q18j) + mo(Q18i) + mo(Q19h),
+                     data = train_df,
+                     family = cumulative("logit"),
+                     cores = parallel::detectCores())
+
+```
+
+
+
+
+
+```{r}
+path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/random forest Q5/Q16 random forests/"
+
+file_name <- "mod1_ord_mono_Q16c.rds"
+
+mod1_ord_mono_Q16c %>% write_rds(file = paste0(path, file_name))
+```
+
+```{r}
+
+mod1_ord_mono_Q16c <- read_rds(file = paste0(path, file_name))
+
+```
+
+
+
+

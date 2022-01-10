@@ -1,0 +1,21 @@
+---
+title: "Test rmd"
+author: "A. Katz"
+date: "4/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+
+
+```{r}
+
+test_df <- read_csv("./data/updated_climate_df_2.csv")
+
+```
+

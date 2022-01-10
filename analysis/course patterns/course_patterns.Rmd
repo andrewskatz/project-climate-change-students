@@ -1,0 +1,891 @@
+---
+title: "Class clustering"
+author: "Katz et al."
+date: "4/26/2021"
+output: html_document
+---
+
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+
+
+```{r}
+
+library(RColorBrewer)
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(knitr)
+library(purrr)
+library(tidytext)
+library(ggmosaic)
+library(brms)
+library(lme4)
+library(parallel)
+library(ggridges)
+library(tidybayes)
+library(ggridges)
+
+library(ggmcmc)
+library(maps)
+library(ggmap)
+
+library(mice)
+
+library(uwot)
+
+library(rstatix)
+
+set.seed(123)
+
+```
+
+
+
+
+```{r}
+
+#climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/updated_climate_df_2.csv")
+data_folder <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/"
+data_file <- "updated_climate_df_2.csv"
+
+climate_df <- read_csv(paste0(data_folder, data_file))
+
+
+## Drop duplicates
+climate_df <- climate_df %>% distinct(Litho, .keep_all = TRUE)
+# check for possible duplicates
+#climate_df %>% group_by(Litho) %>% filter(n() > 1) %>% arrange(Litho) %>% ungroup()
+
+
+## Add in major as string instead of number
+
+climate_df <- climate_df %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"))
+
+
+
+climate_df <- climate_df %>% 
+  rowid_to_column(var = "student_id")
+
+```
+
+
+```{r}
+# create variable vectors
+
+#test_df <- climate_df %>% select(Q7_vars, Q7tally_vars, Q7wt_sum_vars, Q7other_vars, Q7disc_vars,Q7eng_ele_vars, Q7non_eng_vars)
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q2_vars <- paste0("Q2", letters[1:7])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+Q7wt_sum_vars <- paste0("Q7", letters[1:22], "_wt_sum")
+Q7other_vars <- paste0("Q7", letters[1:22], "_other")
+Q7disc_vars <- paste0("Q7", letters[1:22], "_disc_spec")
+Q7eng_ele_vars <- paste0("Q7", letters[1:22], "_eng_ele")
+Q7non_eng_vars <- paste0("Q7", letters[1:22], "_non_eng_ele")
+
+Q6_vars <- paste0("Q6", letters[1:11])
+Q8_vars <- paste0("Q8", letters[1:14])
+
+Q16_vars <- paste0("Q16", letters[1:13])
+
+
+
+Q27_vars <- paste0("Q27", letters[1:9])
+last_letter <- 9
+Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+Q28_vars <- paste0("Q28", letters[1:12])
+
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+
+
+```
+
+```{r}
+climate_df <- climate_df %>% 
+  mutate(Q27a_tri_num = case_when(Q27a == 1 | Q27a == 2 ~ 0,
+                                  Q27a == 3 | Q27a == 4 ~1, 
+                                  Q27a == 5 ~ 2),
+         Q27b_tri_num = case_when(Q27b == 1 | Q27b == 2 ~ 0,
+                                  Q27b == 3 | Q27b == 4 ~1,
+                                  Q27b == 5 ~ 2),
+         Q27c_tri_num = case_when(Q27c == 1 | Q27c == 2 ~ 0,
+                                  Q27c == 3 | Q27c == 4 ~ 1,
+                                  Q27c == 5 ~ 2),
+         Q27d_tri_num = case_when(Q27d == 1 | Q27d == 2 ~ 0,
+                                  Q27d == 3 | Q27d == 4 ~ 1,
+                                  Q27d == 5 ~ 2),
+         Q27e_tri_num = case_when(Q27e == 1 | Q27e == 2 ~ 0,
+                                  Q27e == 3 | Q27e == 4 ~ 1,
+                                  Q27e == 5 ~ 2),
+         Q27f_tri_num = case_when(Q27f == 1 | Q27f == 2 ~ 0,
+                                  Q27f == 3 | Q27f == 4 ~ 1,
+                                  Q27f == 5 ~ 2),
+         Q27g_tri_num = case_when(Q27g == 1 | Q27g == 2 ~ 0,
+                                  Q27g == 3 | Q27g == 4 ~ 1,
+                                  Q27g == 5 ~ 2),
+         Q27h_tri_num = case_when(Q27h == 1 | Q27h == 2 ~ 0,
+                                  Q27h == 3 | Q27h == 4 ~ 1,
+                                  Q27h == 5 ~ 2),
+         Q27i_tri_num = case_when(Q27i == 1 | Q27i == 2 ~ 0,
+                                  Q27i == 3 | Q27i == 4 ~ 1,
+                                  Q27i == 5 ~ 2))
+
+
+```
+
+
+
+## Clustering based on Q7
+
+```{r}
+# create clustering matrix
+
+course_cl_t_df <- climate_df %>% 
+  filter(!is.na(Q40)) %>% 
+  select(student_id, Q7tally_vars)
+
+q27_df <- climate_df %>% 
+  select(student_id, Q27_tri_num_vars)
+
+```
+
+
+
+
+
+```{r}
+# attempt using umap from uwot instead of from umap package
+
+umap_min_dist <- 1
+umap_spread <- 1
+umap_n_comp <- 2
+umap_n_nei <- 5
+u_metric <- "euclidean"
+
+uwot_umap <- function(df, umap_min_dist, umap_spread, umap_n_comp, umap_n_nei, metric) {
+  df %>% 
+    select(Q7a_tally:Q7v_tally) %>%
+    uwot::umap(min_dist = umap_min_dist, 
+               spread = umap_spread, 
+               n_components = umap_n_comp,
+               n_neighbors = umap_n_nei,
+               metric = metric) %>% 
+    as_data_frame()
+}
+
+uwot_umap_ab <- uwot_umap <- function(df, a, b) {
+  df %>% 
+    select(-student_id) %>%
+    uwot::umap(a = a, b = b) %>% 
+    as_data_frame()
+}
+
+
+uwot_plot <- function(df, min_dist = "", spread = "", n_nei = "", metric = ""){
+  p <- df %>% 
+    ggplot(aes(x = V1, y = V2)) +
+    geom_point() +
+    labs(title = paste0("min_dist=", min_dist, 
+                        ", spread=", spread, ", n_nei=", n_nei, ", metric=", metric)) +
+    theme(strip.text.x = element_text(size = 7)) +
+    theme_light()
+  
+  return(p)
+}
+
+uwot_plot_ab <- function(df, a = "", b = ""){
+  p <- df %>% 
+    ggplot(aes(x = V1, y = V2)) +
+    geom_point() +
+    labs(title = paste0("a = ", a, 
+                        ", b = ", b)) +
+    theme(strip.text.x = element_text(size = 7)) +
+    theme_light()
+  
+  return(p)
+}
+```
+
+
+
+
+
+
+```{r}
+
+# final umap selection
+# optimal params: 
+# n_comp <- 2
+# min_dist <- 0.05
+# u_spread <- 1
+# n_nei <- 5
+# metric <- "euclidean"
+
+
+
+
+n_comp <- 2
+min_dist <- 0.00005
+u_spread <- 1
+n_nei <- 5
+metric <- "cosine"
+
+uwot_res <- uwot_umap(course_cl_t_df, umap_min_dist = min_dist, umap_spread = u_spread, umap_n_comp = n_comp, umap_n_nei = n_nei, metric = metric)
+
+
+uwot_plot(uwot_res, min_dist = min_dist, spread = u_spread, n_nei = n_nei, metric = metric)
+
+```
+
+
+
+```{r}
+# attempt with a, b parameter
+
+a <- 1
+b <- seq(from = 0.1, to = 2, by = 0.1)
+
+uwot_res <- uwot_umap_ab(course_cl_t_df, a = a, b =b)
+
+
+uwot_plot_ab(uwot_res, a = a, b = b)
+
+for (b in b){
+  uwot_res <- uwot_umap_ab(course_cl_t_df, a = a, b =b)
+  
+  
+  print(uwot_plot_ab(uwot_res, a = a, b = b))
+  
+}
+
+
+```
+
+
+
+```{r}
+
+
+a <- 1
+b <- 0.6
+
+uwot_res <- uwot_umap_ab(course_cl_t_df, a = a, b = b)
+
+
+uwot_plot_ab(uwot_res, a = a, b = b)
+
+
+
+```
+
+
+
+```{r}
+#cluster umap from uwot implementation
+
+hdbscan_umap_cl <- hdbscan(uwot_res, minPts = 120) 
+
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+uwot_res$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+uwot_res %>% 
+  ggplot(aes(x = V1, y = V2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of STEPS ratings using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+
+```
+
+
+
+```{r}
+
+# cluster compositions from uwot + hdbscan implementation
+
+# add the cluster labels back to the original data set
+course_cl_t_df$cluster <- hdbscan_umap_cl$cluster
+
+course_cl_t_df <- course_cl_t_df %>% inner_join(climate_df %>% select(student_id, Q29), by = "student_id")
+
+
+course_cl_t_df %>% 
+  ggplot(aes(x = cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for STEPS ratings") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+course_cl_t_df %>% 
+  filter(cluster != 0) %>% 
+  filter(!is.na(Q29)) %>% 
+  pivot_longer(cols = Q7a_tally:Q7v_tally, names_to = "course_tally", values_to = "course_amount") %>% 
+  ggplot(aes(x = course_amount, fill = as_factor(Q29))) +
+  geom_histogram() +
+  facet_grid(course_tally ~ cluster) +
+  labs(x = "Item Rating (0 = Low, 3 = High)",
+       title = "Histogram of Course Topic Tallies by Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_light()
+
+
+```
+
+
+
+
+
+# Course weights instead of tallies
+
+
+
+```{r}
+course_cl_ws_df <- climate_df %>% 
+  filter(!is.na(Q40)) %>% 
+  select(student_id, Q7a_wt_sum:Q7v_wt_sum)
+
+
+```
+
+
+
+
+
+```{r}
+
+# final umap selection
+# optimal params: 
+# n_comp <- 2
+# min_dist <- 0.05
+# u_spread <- 1
+# n_nei <- 5
+# metric <- "euclidean"
+
+
+
+
+n_comp <- 2
+min_dist <- 0.05
+u_spread <- 1
+n_nei <- 5
+metric <- "euclidean"
+
+uwot_res <- uwot_umap(course_cl_ws_df, umap_min_dist = min_dist, umap_spread = u_spread, umap_n_comp = n_comp, umap_n_nei = n_nei, metric = metric)
+
+
+uwot_plot(uwot_res, min_dist = min_dist, spread = u_spread, n_nei = n_nei, metric = metric)
+
+```
+
+
+
+```{r}
+# attempt with a, b parameter
+
+a <- 1
+b <- seq(from = 0.1, to = 1, by = 0.05)
+
+uwot_res <- uwot_umap_ab(course_cl_ws_df, a = a, b =b)
+
+
+uwot_plot_ab(uwot_res, a = a, b = b)
+
+
+
+for (b in b){
+  uwot_res <- uwot_umap_ab(course_cl_ws_df, a = a, b =b)
+  
+  
+  print(uwot_plot_ab(uwot_res, a = a, b = b))
+  
+}
+
+
+```
+
+```{r}
+
+# attempt with a, b parameter
+
+a <- seq(from = 0.1, to = 2, by = 0.1)
+b <- 1
+
+uwot_res <- uwot_umap_ab(course_cl_ws_df, a = a, b =b)
+
+
+uwot_plot_ab(uwot_res, a = a, b = b)
+
+
+
+for (a in a){
+  uwot_res <- uwot_umap_ab(course_cl_ws_df, a = a, b =b)
+  
+  
+  print(uwot_plot_ab(uwot_res, a = a, b = b))
+  
+}
+
+```
+
+
+
+
+
+
+
+```{r}
+
+
+a <- 1
+b <- 0.45
+
+uwot_res <- uwot_umap_ab(course_cl_ws_df, a = a, b =b)
+
+
+uwot_plot_ab(uwot_res, a = a, b = b)
+
+
+
+```
+
+
+
+```{r}
+#cluster umap from uwot implementation
+
+hdbscan_umap_cl <- hdbscan(uwot_res, minPts = 80) 
+
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+uwot_res$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+uwot_res %>% 
+  ggplot(aes(x = V1, y = V2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of STEPS ratings using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+
+```
+
+
+
+```{r}
+
+# cluster compositions from uwot + hdbscan implementation
+
+# add the cluster labels back to the original data set
+course_cl_ws_df$cluster <- hdbscan_umap_cl$cluster
+
+course_cl_ws_df %>% 
+  ggplot(aes(x = cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for STEPS ratings") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+course_cl_ws_df %>% 
+  filter(cluster != 0) %>% 
+  pivot_longer(cols = Q7a_wt_sum:Q7v_wt_sum, names_to = "course_tally", values_to = "course_amount") %>% 
+  ggplot(aes(x = course_amount)) +
+  geom_histogram() +
+  facet_grid(course_tally ~ cluster) +
+  labs(x = "Item Rating (0 = Low, 3 = High)",
+       title = "Histogram of Course Topic Tallies by Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_light()
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+# original hdbscan implementation
+
+hdbscan_umap_cl <- hdbscan(plot_df, minPts = 10) 
+# groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+plot_df$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+plot_df %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of STEPS ratings using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+# add the cluster labels back to the original data set
+sys_think_df$cluster <- hdbscan_umap_cl$cluster
+
+sys_think_df %>% 
+  ggplot(aes(x = cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for STEPS ratings") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+```
+
+
+
+
+
+
+
+
+## Q 27 Clustering with a and b parameters instead of min_dist, n_nei
+
+```{r}
+
+data_folder <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering/"
+data_file <- "climate_imputed_2021-04-22.csv"
+
+climate_imp_long <- read_csv(paste0(data_folder, data_file))
+
+```
+
+
+
+```{r}
+
+climate_imp_long <- climate_imp_long %>% 
+  mutate(Q27a_tri_num = case_when(Q27a == 1 | Q27a == 2 ~ 0,
+                                  Q27a == 3 | Q27a == 4 ~1, 
+                                  Q27a == 5 ~ 2),
+         Q27b_tri_num = case_when(Q27b == 1 | Q27b == 2 ~ 0,
+                                  Q27b == 3 | Q27b == 4 ~1,
+                                  Q27b == 5 ~ 2),
+         Q27c_tri_num = case_when(Q27c == 1 | Q27c == 2 ~ 0,
+                                  Q27c == 3 | Q27c == 4 ~ 1,
+                                  Q27c == 5 ~ 2),
+         Q27d_tri_num = case_when(Q27d == 1 | Q27d == 2 ~ 0,
+                                  Q27d == 3 | Q27d == 4 ~ 1,
+                                  Q27d == 5 ~ 2),
+         Q27e_tri_num = case_when(Q27e == 1 | Q27e == 2 ~ 0,
+                                  Q27e == 3 | Q27e == 4 ~ 1,
+                                  Q27e == 5 ~ 2),
+         Q27f_tri_num = case_when(Q27f == 1 | Q27f == 2 ~ 0,
+                                  Q27f == 3 | Q27f == 4 ~ 1,
+                                  Q27f == 5 ~ 2),
+         Q27g_tri_num = case_when(Q27g == 1 | Q27g == 2 ~ 0,
+                                  Q27g == 3 | Q27g == 4 ~ 1,
+                                  Q27g == 5 ~ 2),
+         Q27h_tri_num = case_when(Q27h == 1 | Q27h == 2 ~ 0,
+                                  Q27h == 3 | Q27h == 4 ~ 1,
+                                  Q27h == 5 ~ 2),
+         Q27i_tri_num = case_when(Q27i == 1 | Q27i == 2 ~ 0,
+                                  Q27i == 3 | Q27i == 4 ~ 1,
+                                  Q27i == 5 ~ 2))
+
+
+climate_imp_4 <- climate_imp_long %>% 
+  filter(.imp == 5)
+
+```
+
+
+```{r}
+q27_df <- climate_imp_4 %>% 
+  select(student_id, Q27_tri_num_vars)
+```
+
+
+```{r}
+a <- 0.5
+b <- 1
+uwot_res <- uwot_umap_ab(q27_df, a = a, b = b)
+
+```
+
+```{r}
+uwot_plot_ab(uwot_res, a = a, b = b)
+```
+
+
+
+
+
+
+
+```{r}
+#cluster umap from uwot implementation
+
+hdbscan_umap_cl <- hdbscan(uwot_res, minPts = 80) 
+
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+uwot_res$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+uwot_res %>% 
+  ggplot(aes(x = V1, y = V2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of STEPS ratings using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+```
+
+
+
+
+
+
+
+```{r}
+q27_item_list <- list(
+  'Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment"
+)
+
+q27_labs <- c("Me personally", 
+              "My family",
+              "People in my comm.",
+              "People in US",
+              "Other indust. countr.",
+              "Developing countries",
+              "Plant + animal species",
+              "World's poor",
+              "Natural environment")
+
+names(q27_labs) <- c("Q27a_tri_num",
+                     "Q27b_tri_num",
+                     "Q27c_tri_num",
+                     "Q27d_tri_num",
+                     "Q27e_tri_num",
+                     "Q27f_tri_num",
+                     "Q27g_tri_num",
+                     "Q27h_tri_num",
+                     "Q27i_tri_num")
+```
+
+
+
+# Understanding cluster compositions more
+
+
+#### First create a dataframe with the rankings for each cluster, where a lower ranking means students in the cluster think climate change will affect more categories sooner. 
+
+
+
+```{r}
+
+## create dataframe with rankings for cluster by how soon each cluster believes climate change will affect groups
+
+# [OLD]
+# cluster_ranking_df <- climate_df %>% 
+#   mutate(Q27_tri_total = Q27a_tri_num + Q27b_tri_num + Q27c_tri_num + Q27d_tri_num + Q27e_tri_num +
+#            Q27f_tri_num + Q27g_tri_num + Q27h_tri_num + Q27i_tri_num) %>% 
+#   group_by(cluster) %>% 
+#   summarize(cluster_avg = mean(Q27_tri_total)) %>% 
+#   arrange(cluster_avg) %>% 
+#   rowid_to_column(var = "cluster_time_rank")
+
+#climate_27_tri_df %>% inner_join(cluster_ranking_df, by = "cluster")
+
+q27_df$cluster <- uwot_res$cluster
+
+cluster_ranking_df <- q27_df %>% 
+  mutate(Q27_tri_total = Q27a_tri_num +
+           Q27b_tri_num + Q27c_tri_num +
+           Q27d_tri_num + Q27e_tri_num +
+           Q27f_tri_num + Q27g_tri_num +
+           Q27h_tri_num + Q27i_tri_num) %>% 
+  group_by(cluster) %>% 
+  summarize(cluster_avg = mean(Q27_tri_total)) %>% 
+  arrange(cluster_avg) %>% 
+  rowid_to_column(var = "cluster_time_rank")
+
+# spot check -- passed
+#nested_imp$cluster_ranking_df[[1]]
+
+
+q27_df <- q27_df %>% inner_join(cluster_ranking_df, by = "cluster")
+
+# spot check for whether distributions looks reasonable (e.g., most students believe everything affected now) -- check passed
+#nested_imp$data[[5]] %>% count(cluster_time_rank) %>% summarize(n = sum(n))
+
+
+q27_df %>% count(cluster_time_rank)
+```
+
+
+Set clustering colors for all plots
+```{r}
+
+cluster_num = length(unique(q27_df$cluster_time_rank))
+
+
+# spot check: make sure five values stores -- passed
+#test_df$cluster_num
+
+cluster_colors = colorRampPalette(c("#000000", "#a8adb5", "#dedede"))(cluster_num)
+
+# spot check: make sure colors stored -- passed
+#test_df$cluster_colors[[5]]
+
+
+
+# [OLD]
+# new method of assigning cluster colors along a gradient
+#cluster_num <- length(unique(climate_df$cluster_time_rank))
+
+# cluster colors with red, yellow, green
+#cluster_colors <- colorRampPalette(c("#ec3434", "#f7c035", "#007030"))(cluster_num)
+
+# cluster colors with grayscale
+#cluster_colors <- colorRampPalette(c("#000000", "#a8adb5", "#dedede"))(cluster_num)
+
+
+```
+
+
+
+### Look at distribution of cluster for how when they think each community may be affected by global warming
+
+Same information but faceted with clusters
+
+** This is a good plot for seeing that a cluster's beliefs about effects of global warming on different populations at different times vary in a clear pattern
+```{r}
+
+
+q27_df %>% 
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = survey_item)) +
+  geom_bar(aes(fill = as_factor(response))) +
+  facet_wrap(.~ cluster_time_rank,
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "When will global warming affect this population?",
+       y = "Count",
+       title = "Cluster patterns of when will global warming affect various populations",
+       fill = "Response") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = c("#000000", "#a8adb5", "#dedede"), 
+                    name = "Response",
+                    labels = c("0" = "0-10 yrs", "1" = "25-50y yrs", "2" = "Never")) +
+  scale_x_discrete(labels = c('Q27a_tri_num' = "Me personally", "Q27b_tri_num" = "My family", "Q27c_tri_num" = "People in my comm.", "Q27d_tri_num" = "People in US", "Q27e_tri_num" = "Other indust. countr.", "Q27f_tri_num" = "Developing countries", "Q27g_tri_num" = "Plant + animal species", "Q27h_tri_num" = "World's poor", "Q27i_tri_num" = "Natural environment")) + 
+  coord_flip()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

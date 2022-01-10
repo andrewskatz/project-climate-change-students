@@ -1,0 +1,2152 @@
+---
+title: "q27clustering and student demographics"
+author: "A. Katz"
+date: "9/07/2020"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+
+
+```{r}
+
+library(RColorBrewer)
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(knitr)
+library(purrr)
+library(tidytext)
+library(ggmosaic)
+
+
+library(maps)
+library(ggmap)
+
+
+```
+
+
+
+
+```{r}
+
+climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/updated_climate_df_2.csv")
+
+
+## Drop duplicates
+climate_df <- climate_df %>% distinct(Litho, .keep_all = TRUE)
+
+## Add in major as string instead of number
+
+climate_df <- climate_df %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"))
+
+
+```
+
+
+
+```{r}
+climate_df %>% count(Q29, sort = TRUE)
+
+climate_df %>% count(Q32)
+
+climate_df %>% filter(is.na(Q29)) %>% count(Q32)
+
+
+climate_df %>% count(Q33)
+
+climate_df %>% filter(!is.na(Q29)) %>% count(Q33, sort = TRUE)
+
+climate_df %>% count(Q37)
+
+
+```
+
+
+
+Drop NAs for specific questions and filter out disciplines with fewer than 30 (the cutoff) students in sample
+
+```{r}
+
+Q2_vars <- paste0("Q2", letters[1:7])
+#Q3_vars <- paste0("Q3", letters[1:7])
+
+#climate_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+
+
+Q27_vars <- paste0("Q27", letters[1:9])
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+# climate_df <- climate_df %>% 
+#   drop_na(Q29, Q18k, Q20a, Q20b, Q20d, Q18k, Q22) %>%
+#   drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j) %>%
+#   drop_na(Q24a, Q24b, Q24c, Q24d, Q24e, Q24f, Q24g, Q24h, Q24i, Q24j, Q24k) %>%
+#   drop_na(Q25a, Q25b, Q25c) %>%
+#   drop_na(Q26a, Q26b, Q26c, Q26d, Q26e, Q26f, Q26g, Q26h) %>%
+#   drop_na(Q27_vars) %>%
+#   drop_na(Q28_vars)
+
+climate_df <- climate_df %>% 
+  drop_na(Q29, Q27_vars, Q32, Q37, Q40, Q6a, Q6d, Q6e, Q6i, Q6j, Q8j, Q8n)
+
+climate_df %>% count(Q29, sort = TRUE)
+
+#cutoff <- 30
+
+
+climate_df <- climate_df %>% 
+  add_count(Q29, name = "major_count") %>% 
+  filter(major_count > 30)
+
+
+climate_df %>% count(Q29, sort = TRUE)
+
+count_tbl <- climate_df %>% count(Q29, major, sort = TRUE)
+
+```
+
+
+Major counts and percentages
+```{r}
+count_tbl %>% 
+  mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+  mutate(cumulat_pct = round(cumsum(n)/sum(n)*100, 2)) %>% 
+  kable()
+```
+
+Gender counts overall
+```{r}
+climate_df %>% count(Q37) %>% 
+  mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+  kable()
+```
+
+
+
+fill in 0s for NAs for specific items (Q1, Q3, Q5)
+```{r}
+
+
+### Fill in NAs for specific items ---- 
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+Q16_vars <- paste0("Q16", letters[1:13])
+Q27_vars <- paste0("Q27", letters[1:9])
+Q28_vars <- paste0("Q28", letters[1:12])
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+
+
+
+
+#climate_df[, Q1_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q1_vars), ~replace_na(., 0))
+#climate_df[, Q1_vars]
+
+#climate_df[, Q3_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+#climate_df[, Q3_vars]
+
+#climate_df[,Q5_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q5_vars), ~ replace_na(.,0))
+#climate_df[, Q5_vars]
+
+#climate_df[, Q7_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q7_vars), ~ replace_na(., 0))
+#climate_df[,Q7_vars]
+
+#climate_df[, Q35_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q35_vars), ~ replace_na(., 0))
+#climate_df[,Q35_vars]
+
+#climate_df[, Q39_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q39_vars), ~ replace_na(., 0))
+#climate_df[,Q39_vars]
+
+
+#climate_df[, Q28_vars]
+#climate_df <- climate_df %>% drop_na(Q28_vars)
+#climate_df[, Q28_vars]
+#climate_df <- climate_df %>% drop_na(Q16_vars)
+
+
+
+
+
+```
+
+
+
+```{r}
+
+climate_df <- climate_df %>% drop_na(all_of(Q28_vars))
+climate_df <- climate_df %>% drop_na(all_of(Q27_vars)) #should have 3313 observations
+
+
+
+climate_df <- climate_df %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+
+```
+
+
+Drop majors with low counts (below 30 students in sample)
+```{r}
+
+climate_df %>% count(Q29, sort = TRUE)
+climate_df %>% count(major, sort = TRUE)
+cutoff <- 30
+
+climate_df <- climate_df %>% add_count(Q29, name = "major_count") %>% filter(major_count > cutoff)
+
+```
+
+
+Drop majors with NA as major
+
+
+```{r}
+
+climate_df <- climate_df %>% filter(!is.na(major))
+climate_df %>% count(major, sort = TRUE)
+
+```
+
+
+
+# Clustering Process (two-step process using UMAP + HDBSCAN)
+
+```{r}
+
+
+climate_df <- climate_df %>% 
+  mutate(Q27a_tri_num = case_when(Q27a == 1 | Q27a == 2 ~ 0,
+                                  Q27a == 3 | Q27a == 4 ~1, 
+                                  Q27a == 5 ~ 2),
+         Q27b_tri_num = case_when(Q27b == 1 | Q27b == 2 ~ 0,
+                                  Q27b == 3 | Q27b == 4 ~1,
+                                  Q27b == 5 ~ 2),
+         Q27c_tri_num = case_when(Q27c == 1 | Q27c == 2 ~ 0,
+                                  Q27c == 3 | Q27c == 4 ~ 1,
+                                  Q27c == 5 ~ 2),
+         Q27d_tri_num = case_when(Q27d == 1 | Q27d == 2 ~ 0,
+                                  Q27d == 3 | Q27d == 4 ~ 1,
+                                  Q27d == 5 ~ 2),
+         Q27e_tri_num = case_when(Q27e == 1 | Q27e == 2 ~ 0,
+                                  Q27e == 3 | Q27e == 4 ~ 1,
+                                  Q27e == 5 ~ 2),
+         Q27f_tri_num = case_when(Q27f == 1 | Q27f == 2 ~ 0,
+                                  Q27f == 3 | Q27f == 4 ~ 1,
+                                  Q27f == 5 ~ 2),
+         Q27g_tri_num = case_when(Q27g == 1 | Q27g == 2 ~ 0,
+                                  Q27g == 3 | Q27g == 4 ~ 1,
+                                  Q27g == 5 ~ 2),
+         Q27h_tri_num = case_when(Q27h == 1 | Q27h == 2 ~ 0,
+                                  Q27h == 3 | Q27h == 4 ~ 1,
+                                  Q27h == 5 ~ 2),
+         Q27i_tri_num = case_when(Q27i == 1 | Q27i == 2 ~ 0,
+                                  Q27i == 3 | Q27i == 4 ~ 1,
+                                  Q27i == 5 ~ 2))
+
+
+
+
+Q27_tri_num_vars <- paste0("Q27", letters[1:9], "_tri_num")
+
+climate_df <- climate_df %>% 
+  rowid_to_column(var = "student_id")
+
+climate_27_tri_df <- climate_df %>% 
+  dplyr::select(student_id, Q5a, Q5b, Q5c, Q5d, Q5e, Q5f, Q5g, Q5h, Q5i, Q5j, Q27_tri_num_vars)
+
+```
+
+
+First perform dimension reduction using UMAP
+```{r}
+climate_27_tri_df <- drop_na(climate_27_tri_df)
+
+last_letter <- 9
+Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+
+#Q27_tri_num_vars <- c("Q27a_tri_num", "Q27b_tri_num", "Q27c_tri_num")
+
+# create custom settings for umap
+custom.settings = umap.defaults
+#custom.settings$n_neighbors = 30
+custom.settings$n_components = 2
+custom.settings$n_neighbors = 55 # next time, try dropping this from 55 to 30
+custom.settings$min_dist = 0.00001 # experimental, dropping down from 0.1 to 0.0
+custom.settings$metric = 'euclidean'
+
+## 30 neighbors seems to work well
+
+
+climate_27_tri_umap <- climate_27_tri_df %>% 
+  dplyr::select(Q27_tri_num_vars) %>% 
+  umap(random_state = 123, config = custom.settings)
+
+
+
+
+
+# climate_27_tri_umap <- climate_27_tri_df %>% select(Q27_tri_num_vars) %>% umap(random_state = 123)
+climate_27_tri_umap
+names(climate_27_tri_umap$layout)
+names(climate_27_tri_umap$layout) <- c("dim1", "dim2")
+
+head(climate_27_tri_umap$layout, 3)
+head(climate_27_tri_umap$layout[,1])
+head(climate_27_tri_umap$layout[,2])
+
+# visualize the reduction 
+plot(climate_27_tri_umap$layout[,1], climate_27_tri_umap$layout[,2])
+
+plot_df <- climate_27_tri_umap$layout
+plot_df <- as_tibble(plot_df)
+names(plot_df) <- c("dim1", "dim2")
+ggplot(data = plot_df, aes(x = dim1, y = dim2)) +
+  geom_point()
+```
+
+
+Next, perform clustering with HDBSCAN
+
+```{r}
+# perform clustering using HDBSCAN on the dim-reduced data
+# clustering with min 60 pts leaves 131 unclustered
+#clustering with 40 creates 13 groups and 29 unclustered
+### Best combination: n_components=2, n_neighbords=80, min_dist=0.001, minPts=90 (or 50)
+### also good: n_comp=2, n_neigh=20 or 30, min_dist=0.0001, minPts=50
+hdbscan_umap_cl <- hdbscan(plot_df, minPts = 120) 
+# groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+plot_df$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+plot_df %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of simplified Q27 using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+# add the cluster labels back to the original data set
+climate_27_tri_df$cluster <- hdbscan_umap_cl$cluster
+
+climate_27_tri_df %>% 
+  ggplot(aes(x = cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for Question 27 ternary split") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+```
+
+
+Join the dataframes back together again
+
+```{r}
+# Add the cluster assignments back to the original climate_df dataframe
+climate_df <- climate_27_tri_df %>% dplyr::select(student_id, cluster) %>% inner_join(climate_df, by = "student_id")
+```
+
+
+```{r}
+climate_df %>% count(cluster, sort = TRUE)
+
+
+```
+
+
+
+
+## Views of when climate change will affect different groups broken down by cluster assignments
+
+
+## Looking for patterns in the clusters
+
+
+```{r}
+q27_item_list <- list(
+  'Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment"
+)
+
+q27_labs <- c("Me personally", 
+              "My family",
+              "People in my comm.",
+              "People in US",
+              "Other indust. countr.",
+              "Developing countries",
+              "Plant + animal species",
+              "World's poor",
+              "Natural environment")
+
+names(q27_labs) <- c("Q27a_tri_num",
+                     "Q27b_tri_num",
+                     "Q27c_tri_num",
+                     "Q27d_tri_num",
+                     "Q27e_tri_num",
+                     "Q27f_tri_num",
+                     "Q27g_tri_num",
+                     "Q27h_tri_num",
+                     "Q27i_tri_num")
+```
+
+
+
+# Understanding cluster compositions more
+
+
+#### First create a dataframe with the rankings for each cluster, where a lower ranking means students in the cluster think climate change will affect more categories sooner. 
+
+
+
+```{r}
+
+## create dataframe with rankings for cluster by how soon each cluster believes climate change will affect groups
+cluster_ranking_df <- climate_df %>% 
+  mutate(Q27_tri_total = Q27a_tri_num + Q27b_tri_num + Q27c_tri_num + Q27d_tri_num + Q27e_tri_num +
+           Q27f_tri_num + Q27g_tri_num + Q27h_tri_num + Q27i_tri_num) %>% 
+  group_by(cluster) %>% 
+  summarize(cluster_avg = mean(Q27_tri_total)) %>% 
+  arrange(cluster_avg) %>% 
+  rowid_to_column(var = "cluster_time_rank")
+
+cluster_ranking_df
+
+climate_df <- climate_df %>% 
+  inner_join(cluster_ranking_df, by = "cluster")
+
+#climate_27_tri_df %>% inner_join(cluster_ranking_df, by = "cluster")
+
+
+```
+
+
+Set clustering colors for all plots
+```{r}
+#Old method of randomly assigning colors
+# cluster_num <- length(unique(climate_df$cluster))
+# 
+# cluster_colors <- colorRampPalette(brewer.pal(9, "Set1"))(cluster_num)
+
+# new method of assigning cluster colors along a gradient
+cluster_num <- length(unique(climate_df$cluster_time_rank))
+
+#for color version
+#cluster_colors <- colorRampPalette(c("#ec3434", "#f7c035", "#007030"))(cluster_num)
+
+# for black and white version
+cluster_colors <- colorRampPalette(c("#000000", "#a8adb5", "#dedede"))(cluster_num)
+
+
+```
+
+
+
+### Look at distribution of cluster for how when they think each community may be affected by global warming
+
+```{r}
+climate_df %>%
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>% 
+  ggplot(aes(x = as_factor(response))) +
+  geom_bar(aes(fill = as_factor(cluster_time_rank))) +
+  facet_wrap(.~ survey_item, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "Converted Ternary Response (0 = Now, 1 = Later, 2 = Never)",
+       y = "Count",
+       title = "Histogram of when will global warming affect different groups?",
+       fill = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+Same information but faceted with clusters
+
+** This is a good plot for seeing that a cluster's beliefs about effects of global warming on different populations at different times vary in a clear pattern
+```{r}
+
+climate_df %>%
+  #filter(cluster != 0) %>% 
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = survey_item)) +
+  geom_bar(aes(fill = as_factor(response))) +
+  facet_wrap(.~ cluster_time_rank, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "When will global warming affect this population?",
+       y = "Count",
+       title = "Cluster patterns of when will global warming affect various populations",
+       fill = "Response") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = c("#000000", "#a8adb5", "#dedede"), 
+                    name = "Response", 
+                    labels = c("0" = "0-10 yrs", "1" = "25-50y yrs", "2" = "Never")) +
+  scale_x_discrete(labels = c('Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment")) + 
+  coord_flip()
+
+```
+
+
+#### Overall count for clusters
+
+```{r}
+
+
+
+table(climate_df$Q27a_tri_num)
+
+climate_df %>% 
+  group_by(cluster_time_rank) %>% 
+  summarize(n = n()) %>% 
+  mutate(total = sum(n)) %>% 
+  mutate(percentage = round(n/total*100, 2)) %>% 
+  kable()
+
+```
+
+
+
+```{r}
+climate_df %>% 
+  filter(cluster != 0) %>% 
+  group_by(cluster_time_rank) %>% 
+  summarize(n = n()) %>% 
+  mutate(perc = round(n / sum(n) * 100, 2)) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = fct_reorder(cluster_time_rank, perc), 
+             y = perc, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Cluster", 
+       y = "Percentage of students in cluster",
+       title = "Distribution of temporal belief clusters in engineering students") +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+Without reordering
+
+```{r}
+climate_df %>% 
+  filter(cluster != 0) %>% 
+  group_by(cluster_time_rank) %>% 
+  summarize(n = n()) %>% 
+  mutate(perc = round(n / sum(n) * 100, 2)) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = cluster_time_rank, 
+             y = perc, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Cluster", 
+       y = "Percentage of students in cluster",
+       title = "Distribution of temporal belief clusters in engineering students") +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+Broken plot
+
+```{r}
+
+climate_df %>% 
+  group_by(cluster_time_rank) %>% 
+  summarize(n = n()) %>% 
+#  add_count(major, name = "major_total") %>% 
+#  mutate(proportion = n / major_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = fct_reorder(cluster_time_rank, n), 
+             y = n, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters in engineering majors") +
+  scale_fill_manual(values = cluster_colors)
+```
+
+
+
+
+## Looking at major composition for each cluster
+
+
+
+#### Histogram of Q27 cluster distribution by major
+
+```{r}
+climate_df %>%
+  ggplot(aes(x = as_factor(cluster_time_rank))) +
+  geom_bar(aes(fill = as_factor(cluster_time_rank))) +
+  facet_wrap(.~ major, scales = "free") +
+  theme_bw() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of Q27 clusters by major",
+       fill = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+
+
+
+```{r}
+
+climate_df %>% 
+  group_by(major, cluster_time_rank) %>% 
+  summarize(n = n()) %>% 
+  add_count(major, name = "major_total") %>% 
+  mutate(proportion = n / major_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = cluster_time_rank, y = proportion, fill = cluster_time_rank)) +
+  geom_col() +
+  facet_wrap(. ~ major, scale = "free") +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Cluster", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters in engineering majors") +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+Ordrered plot of distribution of clusters for each major
+
+```{r}
+
+climate_df %>% 
+  group_by(major, cluster_time_rank) %>% 
+  summarize(n = n()) %>% 
+  add_count(major, name = "major_total") %>% 
+  mutate(proportion = n / major_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = fct_reorder(cluster_time_rank, proportion), 
+             y = proportion, fill = cluster_time_rank)) +
+  geom_col() +
+  facet_wrap(. ~ major, scales = "free") +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Cluster", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters in engineering majors") +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+
+
+#### Distribution of majors within each cluster
+
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(major)) %>% 
+  ggplot(aes(x = major)) +
+  geom_bar() +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  coord_flip()
+
+```
+
+
+
+Set colors for majors for all plots
+```{r}
+major_num <- length(unique(climate_df$Q29))
+
+major_colors <- colorRampPalette(brewer.pal(9, "Set1"))(major_num)
+```
+
+
+Plotting the proportion of major in each cluster, ordered within each cluster in decreasing proportion
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(major)) %>% 
+  group_by(cluster_time_rank, major) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  mutate(proportion = n / cluster_total) %>% 
+  mutate(major = reorder_within(major, proportion, cluster_time_rank)) %>% 
+  ggplot(aes(x = major, y = proportion, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free_y") +
+  theme_light() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Major", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters in engineering majors") +
+  scale_x_reordered() +
+#  scale_fill_manual(values = major_colors) +
+  coord_flip() +
+
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+Alternative approach to plotting the proportion of major in each cluster
+```{r}
+
+climate_df %>% 
+  filter(!is.na(major)) %>% 
+  group_by(cluster_time_rank, major) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  mutate(proportion = n / cluster_total) %>% 
+  ggplot(aes(x = fct_reorder(major, proportion), y = proportion, fill = major)) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free_y") +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Major", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters in engineering majors") +
+  scale_fill_manual(values = major_colors) +
+  coord_flip()
+
+```
+
+
+
+### Distribution of cluster within each gender group
+
+Proportion of gender in each cluster
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q37)) %>%
+  mutate(gender = case_when(Q37 == 1 ~ "Male",
+                            Q37 == 2 ~ "Female",
+                            Q37 == 3 ~ "Non-binary",
+                            Q37 == 4 ~ "Not listed")) %>% 
+  group_by(cluster_time_rank, gender) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  mutate(proportion = n / cluster_total) %>% 
+  ggplot(aes(x = gender, y = proportion, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free") +
+  theme_light() +
+  theme(legend.position = "none", 
+        plot.title = element_text(hjust = 0.5, size = 8),
+        axis.text.x = element_text(size=8)) +
+  labs(x = "Gender", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by gender") +
+  scale_x_reordered() +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+
+
+Counts of gender in each group instead of proportions
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q37)) %>%
+  mutate(gender = case_when(Q37 == 1 ~ "Male",
+                            Q37 == 2 ~ "Female",
+                            Q37 == 3 ~ "Non-binary",
+                            Q37 == 4 ~ "Not listed")) %>% 
+  group_by(cluster_time_rank, gender) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  mutate(proportion = n / cluster_total) %>% 
+  mutate(major = reorder_within(gender, proportion, cluster_time_rank)) %>% 
+  ggplot(aes(x = gender, y = n, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free") +
+  theme_light() +
+  theme(legend.position = "none", 
+        plot.title = element_text(hjust = 0.5, size = 7),
+        axis.text.x = element_text(size=8)) +
+  labs(x = "Gender", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by gender") +
+  scale_x_reordered() +
+  scale_fill_manual(values = cluster_colors) 
+
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q37)) %>%
+  mutate(gender = case_when(Q37 == 1 ~ "Male",
+                            Q37 == 2 ~ "Female",
+                            Q37 == 3 ~ "Non-binary",
+                            Q37 == 4 ~ "Not listed")) %>% 
+  group_by(cluster_time_rank, gender) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(gender, name = "gender_total") %>% 
+  mutate(proportion = n / gender_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, proportion, gender), 
+             y = proportion, fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ gender, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by gender") +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+Same figure but with bar orderings in numerical order rather than descending order of size
+
+```{r}
+
+
+climate_df %>% 
+  filter(!is.na(Q37)) %>%
+  mutate(gender = case_when(Q37 == 1 ~ "Male",
+                            Q37 == 2 ~ "Female",
+                            Q37 == 3 ~ "Non-binary",
+                            Q37 == 4 ~ "Not listed")) %>% 
+  group_by(cluster_time_rank, gender) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(gender, name = "gender_total") %>% 
+  mutate(proportion = n / gender_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = cluster_time_rank, 
+             y = proportion, fill = cluster_time_rank)) +
+  geom_col() +
+  facet_wrap(. ~ gender) +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by gender") +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+
+
+#### non-parametric test of gender distribution in clusters
+
+
+```{r}
+climate_df <- climate_df %>%
+  mutate(gender = case_when(Q37 == 1 ~ "Male",
+                            Q37 == 2 ~ "Female",
+                            Q37 == 3 ~ "Non-binary",
+                            Q37 == 4 ~ "Not listed",
+                            TRUE ~ as.character(Q37)))
+climate_df %>% count(gender)
+
+cont_table_gender <- table(climate_df$cluster_time_rank, climate_df$gender)
+cont_table_gender
+chisq.test(cont_table_gender)
+
+
+mosaicplot(cont_table_gender, shade = TRUE, main = "Cluster vs Q37 - Gender")
+
+```
+
+
+
+
+
+
+### Distribution of cluster within each political affiliation
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q32)) %>%
+  mutate(poli_aff = case_when(Q32 == 1 ~ "Rep",
+                            Q32 == 2 ~ "Dem",
+                            Q32 == 3 ~ "Ind",
+                            Q32 == 4 ~ "Other")) %>% 
+  group_by(cluster_time_rank, poli_aff) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  mutate(proportion = n / cluster_total) %>% 
+  ggplot(aes(x = poli_aff, y = proportion, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free") +
+  theme_light() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Political Affiliation", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by political affiliation") +
+  scale_x_reordered() +
+  scale_fill_manual(values = cluster_colors) 
+
+  
+  
+```
+
+
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q32)) %>%
+  mutate(poli_aff = case_when(Q32 == 1 ~ "Rep",
+                            Q32 == 2 ~ "Dem",
+                            Q32 == 3 ~ "Ind",
+                            Q32 == 4 ~ "Other")) %>% 
+  group_by(cluster_time_rank, poli_aff) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  ggplot(aes(x = poli_aff, y = n, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free") +
+  theme_light() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Political Affiliation", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by political affiliation") +
+  scale_x_reordered() +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+Proportion of cluster for each group
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q32)) %>%
+  mutate(poli_aff = case_when(Q32 == 1 ~ "Rep",
+                            Q32 == 2 ~ "Dem",
+                            Q32 == 3 ~ "Ind",
+                            Q32 == 4 ~ "Other")) %>% 
+  group_by(cluster_time_rank, poli_aff) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  add_count(poli_aff, name = "poli_aff_total") %>% 
+  mutate(proportion = n / poli_aff_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, proportion, poli_aff), 
+             y = proportion, fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ poli_aff, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by political affiliation") +
+  scale_fill_manual(values = cluster_colors)
+
+
+
+```
+
+
+
+Same proportion plot but with the bars ordered by number rather than populatrity
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q32)) %>%
+  mutate(poli_aff = case_when(Q32 == 1 ~ "Rep",
+                            Q32 == 2 ~ "Dem",
+                            Q32 == 3 ~ "Ind",
+                            Q32 == 4 ~ "Other")) %>% 
+  group_by(cluster_time_rank, poli_aff) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  add_count(poli_aff, name = "poli_aff_total") %>% 
+  mutate(proportion = n / poli_aff_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = cluster_time_rank, 
+             y = proportion, fill = cluster_time_rank)) +
+  geom_col() +
+  facet_wrap(. ~ poli_aff, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by political affiliation") +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+
+
+Plot of raw numbers rather than proportions
+
+```{r}
+
+climate_df %>% 
+  filter(!is.na(Q32)) %>%
+  mutate(poli_aff = case_when(Q32 == 1 ~ "Rep",
+                            Q32 == 2 ~ "Dem",
+                            Q32 == 3 ~ "Ind",
+                            Q32 == 4 ~ "Other")) %>% 
+  group_by(cluster_time_rank, poli_aff) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "poli_aff_total") %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, n, poli_aff), y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ poli_aff, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by political affiliation")  +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+
+
+
+
+#### Distribution of political affiliation in clusters
+
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(poli_aff = case_when(Q32 == 1 ~ "Rep",
+                            Q32 == 2 ~ "Dem",
+                            Q32 == 3 ~ "Ind",
+                            Q32 == 4 ~ "Other",
+                            TRUE ~ as.character(Q32)))
+
+climate_df %>% count(poli_aff)
+
+cont_table_poli <- table(climate_df$cluster_time_rank, climate_df$poli_aff)
+cont_table_poli
+chisq.test(cont_table_poli)
+
+
+mosaicplot(cont_table_poli, shade = TRUE, main = "Cluster vs Q32 - Political affiliation")
+
+```
+
+
+
+## Distribution of clusters among races/ethnicities
+
+
+
+
+```{r}
+
+climate_df %>%
+  mutate(race_eth = case_when(Q39a == 1 ~ "Af-Am",
+                            Q39b == 1 ~ "Cau",
+                            Q39c == 1 | Q39d == 1 | Q39e == 1 ~ "Asi",
+                            Q39f == 1 | Q39g == 1 ~ "Nat",
+                            Q39h == 1 ~ "His",
+                            Q39i == 1 ~ "NL")) %>% 
+  group_by(cluster_time_rank, race_eth) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  mutate(proportion = n / cluster_total) %>% 
+  ggplot(aes(x = race_eth, y = proportion, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free") +
+  theme_light() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Race/Ethnicity", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by race/ethnicity") +
+  scale_x_reordered() +
+  scale_fill_manual(values = cluster_colors) 
+
+  
+  
+```
+
+
+
+```{r}
+
+climate_df %>%
+  mutate(race_eth = case_when(Q39a == 1 ~ "Af-Am",
+                            Q39b == 1 ~ "Cau",
+                            Q39c == 1 | Q39d == 1 | Q39e == 1 ~ "Asi",
+                            Q39f == 1 | Q39g == 1 ~ "Nat",
+                            Q39h == 1 ~ "His",
+                            Q39i == 1 ~ "NL")) %>% 
+  group_by(cluster_time_rank, race_eth) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "cluster_total") %>% 
+  ggplot(aes(x = race_eth, y = n, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  facet_wrap(. ~ cluster_time_rank, scale = "free") +
+  theme_light() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Race/ethnicity", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by race/ethnicity") +
+  scale_x_reordered() +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+Proportion of cluster for each group
+
+```{r}
+
+climate_df %>%
+  mutate(race_eth = case_when(Q39a == 1 ~ "Af-Am",
+                            Q39b == 1 ~ "Cau",
+                            Q39c == 1 | Q39d == 1 | Q39e == 1 ~ "Asi",
+                            Q39f == 1 | Q39g == 1 ~ "Nat",
+                            Q39h == 1 ~ "His",
+                            Q39i == 1 ~ "NL")) %>% 
+  group_by(cluster_time_rank, race_eth) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  add_count(race_eth, name = "race_eth_total") %>% 
+  mutate(proportion = n / race_eth_total) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, proportion, race_eth), 
+             y = proportion, fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ race_eth, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Proportion",
+       title = "Distribution of temporal belief clusters by race/ethnicity") +
+  scale_fill_manual(values = cluster_colors)
+
+
+
+```
+
+
+Same plot but with clusters ordered by number instead of smallest to largest
+
+```{r}
+
+climate_df %>%
+  mutate(race_eth = case_when(Q39a == 1 ~ "Af-Am",
+                            Q39b == 1 ~ "Cau",
+                            Q39c == 1 | Q39d == 1 | Q39e == 1 ~ "Asi",
+                            Q39f == 1 | Q39g == 1 ~ "Nat",
+                            Q39h == 1 ~ "His",
+                            Q39i == 1 ~ "NL")) %>% 
+  group_by(cluster_time_rank, race_eth) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "race_eth_total") %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = cluster_time_rank,
+             y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ race_eth, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by race/ethnicity")  +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+
+
+
+
+#### Distribution of races/ethnicities in clusters
+
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(race_eth = case_when(Q39a == 1 ~ "Af-Am",
+                            Q39b == 1 ~ "Cau",
+                            Q39c == 1 | Q39d == 1 | Q39e == 1 ~ "Asi",
+                            Q39f == 1 | Q39g == 1 ~ "Nat",
+                            Q39h == 1 ~ "His",
+                            Q39i == 1 ~ "NL"))
+
+climate_df %>% count(race_eth)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$race_eth)
+cont_table
+chisq.test(cont_table)
+
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Q32 - Race/ethnicity")
+
+```
+
+
+
+```{r}
+## Religion distribution
+
+# cont_table_Q33 <- table(climate_df$cluster, climate_df$Q33)
+# cont_table_Q33
+# chisq.test(cont_table_Q33)
+# 
+# 
+# mosaicplot(cont_table_Q33, shade = TRUE, main = "Cluster vs Q33 - Religion")
+
+```
+
+
+
+
+
+### Distribution of clusters by year in school -- not worth doing since most are 4th, 5th, or 6th year
+
+```{r}
+
+climate_df %>% 
+  count(Q30)
+
+```
+
+
+### Look at cluster and grade distributions
+
+```{r}
+climate_df %>% 
+  count(Q31)
+```
+
+#### Chi square test of grade distribution by cluster membership
+Observation: no evidence to support statistical association (probably a good thing)
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(gpa = case_when(Q31 == 1 ~ "A",
+                         Q31 == 2 ~ "A-",
+                         Q31 == 3 ~ "B+",
+                         Q31 == 4 ~ "B",
+                         Q31 == 5 ~ "B-",
+                         Q31 == 6 ~ "C+",
+                         Q31 == 7 ~ "C",
+                         Q31 == 8 ~ "C-",
+                         Q31 == 9 ~ "D or lower"))
+
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$gpa)
+cont_table
+chisq.test(cont_table)
+
+```
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs In-major grades")
+
+```
+
+
+
+
+
+
+
+# Distribution of clusters by geographic location
+
+This includes student hometown zipcodes, student hometown census region, student hometown census division, student school census region, and student school census division
+
+
+
+
+```{r}
+#####
+####
+### draw map of clusters ---
+##
+#
+
+
+states <- map_data("state")
+# 
+# ggplot() +
+#   geom_polygon(data = states, aes(x=long, y = lat, group = group), fill = "grey", alpha = 0.3)
+# 
+# 
+
+#### NOTE: climate_df should have the zip code and cluster assignments
+
+
+
+#climate_df %>% drop_na(Q40) # drops ~ 200 responses
+```
+
+
+
+
+```{r}
+
+climate_df_zip <- climate_df %>% 
+  drop_na(Q40) %>% 
+  count(Q40, cluster, cluster_time_rank) 
+
+
+#climate_df_zip %>% arrange(desc(n))
+
+
+climate_df_zip <- climate_df_zip %>% 
+  rename(zip = Q40, value = n) %>% 
+  mutate(zip = as.character(zip))
+
+# make sure no residual na values for zip
+climate_df_zip_filt <- climate_df_zip %>% 
+  filter(zip != "NA")
+
+#climate_df_zip_filt %>% arrange(desc(value))
+
+### quick sanity check on counts
+sum(climate_df_zip$value) 
+sum(climate_df_zip_filt$value)
+
+
+
+# old zip code csv file
+#zips_df <- read_csv("C:/Users/akatz4/Downloads/uszips.csv") # this may have been missing some zips - DONT USE
+
+#new zip code csv file from https://public.opendatasoft.com/explore/dataset/us-zip-code-latitude-and-longitude/export/
+zips_df <- read_csv("C:/Users/akatz4/Downloads/zip_code_database.csv")
+
+
+zips_df <- zips_df %>% 
+  dplyr::select(zip, state, latitude, longitude)
+
+zips_df <- zips_df %>% mutate(zip = str_remove(zip, "^0+"))
+
+
+```
+
+
+```{r}
+
+census_region_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/us census region division state.csv")
+
+zips_region_df <- zips_df %>% 
+  inner_join(census_region_df, by = c("state" = "state_code"))
+
+```
+
+
+
+
+
+```{r}
+# something seems wrong here - dropped from 2136 to 1786
+climate_df_zip_state <- climate_df_zip_filt %>% inner_join(zips_region_df, by = "zip")
+##sum(climate_df_zip_state$value) # sum is now 2482 -- much closer to the 2522
+
+# see which zip codes are creating problems
+climate_df_zip_filt %>% anti_join(zips_df, by = "zip")  # returns 23 zip codes -- they seem to be outsise US
+
+missing_zips <- climate_df_zip_filt %>% anti_join(zips_df, by = "zip") # returns 350 zip codes
+#missing_zips
+#sum(missing_zips$value) # accounts for 373 students, which is the difference between 2149 and 2522
+# this means that there are 350 missing zip codes from Q40 that are not in the zips_df
+#zips_df %>% arrange(zip)
+
+
+climate_df_zip_full <- zips_df %>% left_join(climate_df_zip_filt)
+climate_df_zip_full$value <- replace_na(climate_df_zip_full$value, 0)
+climate_df_zip_full$cluster <- replace_na(climate_df_zip_full$cluster, 0)
+#sum(climate_df_zip_full$value) #2149, but should be 2522
+
+
+climate_df_zip_full <- climate_df_zip_full %>%
+  dplyr::select(zip, value) %>% 
+  rename(region = zip)
+
+
+```
+
+
+
+```{r}
+### Bubble plot maps -----
+
+states <- map_data("state")
+
+data <- climate_df_zip_filt %>% inner_join(zips_region_df, by = "zip")
+sum(data$value) #has 2499 but should have 2522 (the missing 23 seem to be international)
+
+
+# check on number of students from 
+# Alaska
+#data %>% filter(state == "AK") # 4 students
+#Hawaii
+#data %>% filter(state == "HI") # 5 students
+
+filter_states <- c("AK", "HI")
+
+data <- data %>% filter(!state %in% filter_states)
+#sum(data$value)
+
+
+#str(states)
+```
+
+
+## Geographic region analysis for clusters
+
+```{r}
+
+data %>% 
+  group_by(cluster_time_rank, region_name) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, n, region_name), y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ region_name, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5, size = 10)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by student hometown census region")  +
+  scale_fill_manual(values = cluster_colors)
+
+
+
+```
+
+Same plot without reordering by size
+
+
+```{r}
+
+data %>% 
+  group_by(cluster_time_rank, region_name) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = cluster_time_rank, y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ region_name, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5, size = 10)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by student hometown census region")  +
+  scale_fill_manual(values = cluster_colors)
+
+
+
+```
+
+
+
+
+```{r}
+data %>% count(region_name)
+
+cont_table_region <- table(data$cluster_time_rank, data$region_name)
+cont_table_region
+chisq.test(cont_table_region)
+```
+
+
+```{r}
+mosaicplot(cont_table_region, shade = TRUE, main = "Cluster vs Student Hometown Census Region")
+
+
+```
+
+
+##### Same analysis as above but using census division instead of census region
+
+
+
+```{r}
+
+data %>% 
+  group_by(cluster_time_rank, division_name) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, n, division_name), y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ division_name, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5, size = 10)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by student hometown census division")  +
+  scale_fill_manual(values = cluster_colors)
+
+
+
+```
+
+
+
+
+Same plot for census division without reordering by size
+
+
+```{r}
+
+data %>% 
+  group_by(cluster_time_rank, division_name) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = cluster_time_rank, y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ division_name, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5, size = 10)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by student hometown census division")  +
+  scale_fill_manual(values = cluster_colors)
+
+
+
+```
+
+
+
+
+```{r}
+data %>% count(division_name)
+
+cont_table_division <- table(data$cluster_time_rank, data$division_name)
+cont_table_division
+chisq.test(cont_table_division)
+```
+
+
+```{r}
+mosaicplot(cont_table_division, shade = TRUE, main = "Cluster vs Student Hometown Census Division")
+
+
+```
+
+
+
+### Map of cluster distributions
+
+```{r}
+# BEST MAP METHOD - fourth method: this code works for creating map colored by state ----
+
+
+state_colors <- colorRampPalette(brewer.pal(9, "Pastel1"))(49)
+
+#original method
+# cluster_num <- length(unique(climate_df$cluster))
+# 
+# cluster_colors <- colorRampPalette(brewer.pal(9, "Set1"))(cluster_num)
+
+#new method -- no longer necessary because cluster colors set above (right after the clustering section)
+#cluster_num <- length(unique(climate_df$cluster_time_rank))
+
+#cluster_colors <- colorRampPalette(c("#F11D08", "#2550CB"))(cluster_num)
+
+
+
+p <- ggplot(data = states,
+            mapping = aes(x = long, y = lat,
+                          group = group, fill = region))
+
+p + geom_polygon(color = "gray90", size = 0.1) +
+  geom_point(data=data, 
+             aes(x=longitude, y=latitude, size=value, color=as_factor(cluster_time_rank)),
+             alpha = 0.5,
+             inherit.aes = FALSE) +
+  coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+  guides(fill = FALSE) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        plot.title = element_text(hjust = 0.5)) +
+  scale_fill_manual(values = state_colors) +
+  scale_color_manual(values = cluster_colors) +
+  labs(x = "",
+       y = "",
+       title = "Survey Respondent Hometown Bubble Map",
+       color = "Smaller Number = Sooner Effects",
+       size = "Cluster size")
+
+
+```
+
+
+
+## School and academic experiences by cluster
+
+
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(School = case_when(School == "Embry-Riddle Aeronautical University-Prescot" ~ "Embry-Riddle Aeronautical University-Prescott",
+                            School == "California State University, Chico" ~ "California State University-Chico",
+                            School == "California State University, East Bay" ~ "California State University-East Bay",
+                            School == "California State University, Fresno" ~ "California State University-Fresno",
+                            School == "California State University, Northridge" ~ "California State University-Northridge",
+                            School == "Florida A&M University" ~ "Florida Agricultural and Mechanical University",
+                            School == "Southern Illinois University Edwardsville" ~ "Southern Illinois University-Edwardsville",
+                            School == "Arizona State University" ~ "Arizona State University-Tempe",
+                            School == "The City College of New York" ~ "CUNY City College",
+                            School == "New Mexico State University" ~ "New Mexico State University-Main Campus",
+                            School == "St. Ambrose University" ~ "Saint Ambrose University",
+                            School == "Rutgers, the State University of New Jersey" ~ "Rutgers University-New Brunswick",
+                            School == "Rutgers University" ~ "Rutgers University-New Brunswick",
+                            School == "University of Maryland Baltimore County" ~ "California State University-Chico",
+                            School == "University of Maryland Baltimore County" ~ "University of Maryland-Baltimore County",
+                            School == "University of California Davis" ~ "University of California-Davis",
+                            School == "University of Cincinnati" ~ "University of Cincinnati-Main Campus",
+                            School == "Cincinnati University" ~ "University of Cincinnati-Main Campus",
+                            School == "University of Conneticut" ~ "University of Connecticut",
+                            School == "University of Massachusetts, Amherst" ~ "University of Massachusetts-Amherst",
+                            School == "University of Massachusets, Amherst" ~ "University of Massachusetts-Amherst",
+                            School == "University of Massachussets, Amherst" ~ "University of Massachusetts-Amherst",
+                            School == "University of Massachusetts" ~ "University of Massachusetts-Amherst",
+                            School == "University of Nevada, Reno" ~ "University of Nevada-Reno",
+                            School == "University of Tennessee, Knoxville" ~ "The University of Tennessee-Knoxville",
+                            School == "University of Tennessee" ~ "The University of Tennessee-Knoxville",
+                            School == "University of Tennessee, Chattanooga" ~ "The University of Tennessee-Chattanooga",
+                            School == "Virginia Tech" ~ "Virginia Polytechnic Institute and State University",
+                            School == "Virgina Tech" ~ "Virginia Polytechnic Institute and State University",
+                            School == "Bob Jones Univeristy" ~ "Bob Jones University",
+                            School == "New Mexico Tech" ~ "New Mexico Institute of Mining and Technology",
+                            School == "Penn State" ~ "Pennsylvania State University-Main Campus",
+                            School == "Southern Illinois University" ~ "Southern Illinois University-Edwardsville",
+                            School == "Texas A&M University" ~ "Texas A & M University-College Station",
+                            School == "Tulane University" ~ "Tulane University of Louisiana",
+                            School == "Minnesota State University" ~ "Minnesota State University-Mankato",
+                            School == "The Cooper Union" ~ "Cooper Union for the Advancement of Science and Art",
+                            School == "University of Alabama, Huntsville" ~ "University of Alabama in Huntsville",
+                            School == "University of California, Santa Cruz" ~ "University of California-Santa Cruz",
+                            School == "University of Colorado at Colorado Springs" ~ "University of Colorado Colorado Springs",
+                            School == "University of Missouri, Columbia" ~ "University of Missouri-Columbia",
+                            School == "University of Missouri" ~ "University of Missouri-Columbia",
+                            School == "University of Texas, Arlington" ~ "The University of Texas at Arlington",
+                            School == "University of Virginia, Wise" ~ "The University of Virginia's College at Wise",
+                            School == "State University of New York" ~ "SUNY College of Environmental Science and Forestry",
+                            School == "University of Puerto Rico" ~ "Universidad Politecnica de Puerto Rico",
+                            TRUE ~ School))
+
+
+```
+
+
+
+
+```{r}
+
+#join climate_df with ipeds data
+
+school_info <- read_csv("G:/My Drive/AK Faculty/Research/IDEEAS Lab/projects/project ethics courses in engineering curricula/data/ipeds_inst_char_2018.csv")
+
+school_info <- school_info %>% distinct(INSTNM, .keep_all = TRUE)
+
+climate_df <- climate_df %>% inner_join(school_info, by = c("School" = "INSTNM"))
+
+
+```
+
+
+Distribution of clusters among different types of universities -- Carnegie classification
+
+
+```{r}
+#carnegie classification
+
+climate_df %>% 
+  filter(!is.na(C18BASIC)) %>% 
+  mutate(C18BASIC = as.factor(C18BASIC)) %>% 
+  group_by(cluster_time_rank, C18BASIC) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>%
+  add_count(cluster_time_rank, name = "C18Basic_n") %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, n, C18BASIC), y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ C18BASIC, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by university Carnegie classification")  +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+
+Distribution among schools in census regions and census divisions
+
+
+```{r}
+states_region_df <- zips_region_df %>% 
+  dplyr::select(state, region_name, division_name) %>% 
+  dplyr::rename(STABBR = state,
+                region_name_school = region_name,
+                division_name_school = division_name) %>% 
+  distinct(STABBR, .keep_all = TRUE)
+
+
+```
+
+
+```{r}
+
+climate_df <- climate_df %>% 
+  inner_join(states_region_df, by = "STABBR") 
+
+
+```
+
+
+
+##### Distribution of clusters among census region location of schools
+
+
+```{r}
+
+climate_df %>% 
+  group_by(cluster_time_rank, region_name_school) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, n, region_name_school), y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ region_name_school, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by school census region")  +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+
+```{r}
+
+climate_df %>% 
+  group_by(cluster_time_rank, region_name_school) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = cluster_time_rank, y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ region_name_school, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by school census region")  +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+Chi square test of cluster by school census region location
+
+
+```{r}
+
+climate_df %>% count(region_name_school)
+
+cont_table_region <- table(climate_df$cluster_time_rank, climate_df$region_name_school)
+cont_table_region
+chisq.test(cont_table_region)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table_region, shade = TRUE, main = "Cluster vs School Census Region")
+
+
+```
+
+
+
+##### Distribution of clusters among census division location of schools
+
+
+```{r}
+
+climate_df %>% 
+  group_by(cluster_time_rank, division_name_school) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = reorder_within(cluster_time_rank, n, division_name_school), y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ division_name_school, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by school census division")  +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+
+```{r}
+
+climate_df %>% 
+  group_by(cluster_time_rank, division_name_school) %>% 
+  summarize(n = n()) %>% 
+  ungroup() %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  #mutate(gender = reorder_within(cluster, proportion, gender)) %>% 
+  ggplot(aes(x = cluster_time_rank, y = n, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  scale_x_reordered() + 
+  facet_wrap(. ~ division_name_school, scales = "free") +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust=0.5)) +
+  labs(x = "Cluster", 
+       y = "Count",
+       title = "Distribution of temporal belief clusters by school census division")  +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+Chi square test of cluster by school census division location
+
+
+```{r}
+
+climate_df %>% count(division_name_school)
+
+cont_table_division <- table(climate_df$cluster_time_rank, climate_df$division_name_school)
+cont_table_division
+chisq.test(cont_table_division)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table_division, shade = TRUE, main = "Cluster vs School Census Division")
+
+
+```
+
+
+Follow up question: how many students move to a new census region or division for school?
+
+
+```{r}
+
+# 
+
+climate_df <- climate_df %>% 
+  mutate(Q40 = as.character(Q40)) %>% 
+  inner_join(zips_region_df, by = c("Q40" = "zip")) 
+  
+
+climate_df <- climate_df %>% 
+  rename(STABBR_student = state,
+         STABBR_school = STABBR)
+
+```
+
+
+
+```{r}
+climate_df <- climate_df %>% 
+  mutate(switch_region = case_when(region_name_school == region_name ~ "Stay",
+                                   region_name_school != region_name ~ "Switch"),
+  switch_division = case_when(division_name_school == division_name ~ "Stay",
+                              division_name_school != division_name ~ "Switch"),
+  switch_state = case_when(STABBR_school == STABBR_student ~ "Stay",
+                           STABBR_school != STABBR_student ~ "Switch"))
+
+
+climate_df %>% count(switch_state)
+
+climate_df %>% count(switch_division)
+
+climate_df %>% count(switch_region)
+
+
+```
+
+
+
+### Trying to combine all chi square tests together into one table
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(religion_aff = case_when(Q33 == 1 ~ "Protestant",
+                                  Q33 == 2 ~ "Jewish",
+                                  Q33 == 3 ~ "Muslim",
+                                  Q33 == 4 ~ "Catholic",
+                                  Q33 == 5 ~ "LDS",
+                                  Q33 == 6 ~ "Buddhist",
+                                  Q33 == 7 ~ "Hindu",
+                                  Q33 == 8 ~ "Spiritual",
+                                  Q33 == 9 ~ "Atheist",
+                                  Q33 == 10 ~ "Agnostic",
+                                  Q33 == 11~ "Not listed",
+                                  Q33 == 12 ~ "N/A"))
+
+# variables used for chi square tests
+# remember race_eth is the recoded Q39 -- probably want to drop this
+
+demog_vars <- c("poli_aff", "religion_aff", "gender", "race_eth",
+                "division_name", "region_name", 
+                "region_name_school", "division_name_school",
+                "cluster_time_rank")
+## test code
+# climate_df %>% 
+#   select(demog_vars) %>% 
+#   mutate(across(.cols = demog_vars, as.factor))
+
+
+demog_df <- climate_df %>% 
+  dplyr::select(student_id,
+         cluster_time_rank,
+         poli_aff, religion_aff, gender, race_eth,
+         division_name, region_name, region_name_school, division_name_school) %>% 
+  mutate(across(.cols = demog_vars, as.character)) %>% 
+  pivot_longer(cols = poli_aff:division_name_school, 
+               names_to = "demog_item", values_to = "demog_resp")
+
+```
+
+
+
+Nest data into dataframes for each demographic variable of interest
+(political affiliation, religion, gender, hometown census region (or division), school census region (or division))
+
+
+```{r}
+
+nested <- demog_df %>% 
+  group_by(demog_item) %>% 
+  nest(data = c(student_id, cluster_time_rank, demog_resp)) %>% 
+  mutate(
+    demog_item_name = case_when(
+      demog_item == "poli_aff" ~ "Political affiliation", 
+      demog_item == "religion_aff" ~ "Religious affiliation",
+      demog_item == "gender" ~ "Gender",
+      demog_item == "race_eth" ~ "Race/ethnicity",
+      demog_item == "division_name" ~ "Hometown census division",
+      demog_item == "region_name" ~ "Hometown census region",
+      demog_item == "division_name_school" ~ "School census division",
+      demog_item == "region_name_school" ~ "School census region"),
+    cont_tab = purrr::map(data, ~table(.$cluster_time_rank, .$demog_resp)),
+    test = purrr::map(data, ~chisq.test(.$cluster_time_rank, .$demog_resp)),
+    tidied = purrr::map(test, tidy),
+    m_plot = mosaicplot(cont_tab[[1]], shade = TRUE, main = demog_item_name)
+  )
+
+
+```
+
+Unnested results for demographic variable distribution tests (chi-square)
+
+```{r}
+
+
+unnested <- nested %>% 
+  dplyr::select(demog_item, demog_item_name, tidied) %>% 
+  unnest(tidied) %>% 
+  mutate(adjusted_p_value_bonferroni = p.adjust(p.value, 
+                                     n = nrow(nested), 
+                                     method = "bonferroni"))
+
+unnested$p_value_adjusted_holm <- p.adjust(unnested$p.value, method = "holm")
+
+unnested %>% 
+  kable()
+
+
+```
+
+
+
+
+# End cluster analysis
+
+
+
+
+
+

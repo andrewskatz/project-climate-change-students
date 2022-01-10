@@ -1,0 +1,767 @@
+---
+title: "ASEE 2020 - Civil engineering students and impacts of climate change"
+author: "Shealy and Katz"
+date: "1/22/2020"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(broom)
+library(knitr)
+library(randomForest)
+library(purrr)
+library(purrrlyr)
+library(RColorBrewer)
+library(gmodels)
+library(umap)
+library(dbscan)
+
+library(sjPlot)
+library(sjlabelled)
+library(sjmisc)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+
+```
+
+## Analysis for 2020 ASEE paper on civil engineering student beliefs about the geographical impacts across time 
+
+
+```{r data processing, echo=FALSE, message=FALSE}
+
+project_path <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change"
+setwd(project_path)
+
+climate_data <- read_csv("updated_climate_df_5.csv")
+
+table(climate_data$Q29)
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+Q16_vars <- paste0("Q16", letters[1:13])
+Q27_vars <- paste0("Q27", letters[1:9])
+Q28_vars <- paste0("Q28", letters[1:12])
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+
+
+# create a new dataframe for doing all the calculations
+#rf_df <- climate_data
+
+# rf_df <- rf_df %>% mutate_at(vars(Q1_vars), ~replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+# 
+# #rf_df <- rf_df %>% mutate_at(vars(Q5_vars), ~ replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q7_vars), ~ replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q35_vars), ~ replace_na(., 0))
+# 
+# rf_df <- rf_df %>% mutate_at(vars(Q39_vars), ~ replace_na(., 0))
+# 
+# 
+# rf_df <- rf_df %>% drop_na(Q28_vars)
+# 
+# rf_df <- rf_df %>% drop_na(Q16_vars)
+
+
+#data read-in 
+#climate_df <- read_csv("filtered_climate_survey_20200122.csv")
+
+#climate_df <- climate_df %>% drop_na(Q28_vars)
+#climate_df <- climate_df %>% drop_na(Q27_vars) #should have 
+dim(climate_data)
+
+
+```
+
+
+#### Summary statistics
+
+
+Frequency tables for Question 28
+
+
+```{r echo=FALSE, message=FALSE}
+
+
+ # climate_df %>% 
+ #   filter(Q29 == 4) %>% 
+ #   select(Q28_vars) %>% 
+ #   gather(key = "item", value = "response") %>% 
+ #   group_by(item, response) %>% 
+ #   tally() %>% 
+ #   spread(response, n) %>% 
+ #  mutate(total = )
+
+count_df <- climate_df %>% 
+   filter(Q29 == 4) %>% 
+   select(Q28_vars) %>% 
+   gather(key = "item", value = "response") %>% 
+   group_by(item) %>% 
+   tally()
+
+
+q28_df <-  climate_df %>% 
+   filter(Q29 == 4) %>% 
+   select(Q28_vars) %>% 
+   gather(key = "item", value = "response") %>% 
+   group_by(item, response) %>% 
+   tally() %>% 
+   spread(response, n)
+
+
+q28_df <- inner_join(count_df, q28_df)
+
+q28_df %>% 
+  kable()
+
+response_values <- colnames(q28_df)[-(1:2)]
+
+q28_df %>% 
+  mutate_at(response_values, funs(./n * 100)) %>% 
+  mutate_at(response_values, funs(round(., 1))) %>% 
+  kable()
+  
+
+
+
+```
+
+
+
+Summary statistics for Q28 factor
+
+
+```{r echo=FALSE}
+
+climate_df <- climate_df %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  select(Q28_social, Q28_tech, Q28_social_norm, Q28_tech_norm) %>% 
+  gather(key = "item", value = "response_values") %>%
+  group_by(item) %>% 
+  summarize(mean = mean(response_values), sd = sd(response_values), n = n()) %>% 
+  kable(digits = 2)
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  ggplot(aes(x = Q28_tech_norm)) +
+  geom_histogram() +
+  theme_bw() +
+  labs(x = "Global warming is a 'technical' issue normalized score",
+       y = "Number of students")
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  ggplot(aes(x = Q28_social_norm)) +
+  geom_histogram() +
+  theme_bw() +
+  labs(x = "Global warming is a 'social' issue normalized score",
+       y = "Number of students") +
+  ylim(0, 150)
+
+
+```
+
+
+
+Frequency tables for Question 27
+
+
+```{r echo=FALSE, message=FALSE}
+
+
+count_df <- climate_df %>% 
+   filter(Q29 == 4) %>% 
+   select(Q27_vars) %>% 
+   gather(key = "item", value = "response") %>% 
+   group_by(item) %>% 
+   tally()
+
+
+q27_df <-  climate_df %>% 
+   filter(Q29 == 4) %>% 
+   select(Q27_vars) %>% 
+   gather(key = "item", value = "response") %>% 
+   group_by(item, response) %>% 
+   tally() %>% 
+   spread(response, n)
+
+
+q27_df <- inner_join(count_df, q27_df)
+
+q27_df %>% 
+  kable()
+
+response_values <- colnames(q27_df)[-(1:2)]
+
+q27_df %>% 
+  mutate_at(response_values, funs(./n *100)) %>% 
+  mutate_at(response_values, funs(round(., 1))) %>% 
+  kable()
+  
+
+
+
+```
+
+
+
+
+### Chi square tests for Question 27
+
+```{r echo=FALSE, message=FALSE}
+
+test_df <- climate_df %>% 
+  filter(Q29 == 4) %>% 
+  mutate(Q27a_bin = case_when(Q27a == 1 | Q27a == 2 ~ "Sooner",
+                              Q27a == 3 | Q27a == 4 | Q27a == 5 ~ "Later"),
+         Q27b_bin = case_when(Q27b == 1 | Q27b == 2 ~ "Sooner",
+                              Q27b == 3 | Q27b == 4 | Q27b == 5 ~ "Later"),
+         Q27c_bin = case_when(Q27c == 1 | Q27c == 2 ~ "Sooner",
+                              Q27c == 3 | Q27c == 4 | Q27c == 5 ~ "Later"),
+         Q27d_bin = case_when(Q27d == 1 | Q27d == 2 ~ "Sooner",
+                              Q27d == 3 | Q27d == 4 | Q27d == 5 ~ "Later"),
+         Q27e_bin = case_when(Q27e == 1 | Q27e == 2 ~ "Sooner",
+                              Q27e == 3 | Q27e == 4 | Q27e == 5 ~ "Later"),
+         Q27f_bin = case_when(Q27f == 1 | Q27f == 2 ~ "Sooner",
+                              Q27f == 3 | Q27f == 4 | Q27f == 5 ~ "Later"),
+         Q27g_bin = case_when(Q27g == 1 | Q27g == 2 ~ "Sooner",
+                              Q27g == 3 | Q27g == 4 | Q27g == 5 ~ "Later"),
+         Q27h_bin = case_when(Q27h == 1 | Q27h == 2 ~ "Sooner",
+                              Q27h == 3 | Q27h == 4 | Q27h == 5 ~ "Later"),
+         Q27i_bin = case_when(Q27i == 1 | Q27i == 2 ~ "Sooner",
+                              Q27i == 3 | Q27i == 4 | Q27i == 5 ~ "Later"))
+
+
+```
+
+chi-square for Q27 natural environment (27i) vs me personally (27a)
+
+```{r echo= FALSE}
+# using chi-square for Q27 natural environment (27i) vs me personally (27a)
+CrossTable(test_df$Q27a_bin, test_df$Q27i_bin, chisq = TRUE)
+xtabs(~ Q27a_bin + Q27i_bin, data=test_df)
+chisq.test(test_df$Q27a_bin, test_df$Q27i_bin)
+```
+
+chi-square for Q27 natural environment (27i) vs my family (27b)
+
+```{r echo= FALSE}
+# using chi-square for Q27 natural environment (27i) vs my family (27b)
+CrossTable(test_df$Q27b_bin, test_df$Q27i_bin, chisq = TRUE)
+xtabs(~ Q27b_bin + Q27i_bin, data=test_df)
+chisq.test(test_df$Q27b_bin, test_df$Q27i_bin)
+```
+
+chi-square for Q27 natural environment (27i) vs people in my community (27c)
+
+``` {r echo= FALSE}
+# using chi-square for Q27 natural environment (27i) vs people in my community (27c)
+CrossTable(test_df$Q27c_bin, test_df$Q27i_bin, chisq = TRUE)
+xtabs(~ Q27c_bin + Q27i_bin, data=test_df)
+chisq.test(test_df$Q27c_bin, test_df$Q27i_bin)
+```
+
+
+chi-square for Q27 natural environment (27i) vs people in the United States (27d)
+
+```{r echo= FALSE}
+# using chi-square for Q27 natural environment (27i) vs people in the United States (27d)
+CrossTable(test_df$Q27d_bin, test_df$Q27i_bin, chisq = TRUE)
+xtabs(~ Q27d_bin + Q27i_bin, data=test_df)
+chisq.test(test_df$Q27d_bin, test_df$Q27i_bin)
+
+
+```
+
+
+chi-square for Q27 natural environment (27i) vs people in other industrialized countries (27e)
+
+
+``` {r echo= FALSE}
+
+# using chi-square for Q27 natural environment (27i) vs people in other industrialized countries (27e)
+
+CrossTable(test_df$Q27e_bin, test_df$Q27i_bin, chisq = TRUE)
+xtabs(~ Q27e_bin + Q27i_bin, data=test_df)
+chisq.test(test_df$Q27e_bin, test_df$Q27i_bin)
+```
+
+
+chi-square for Q27 natural environment (27i) vs people in developing countries (27f)
+
+```{r echo=FALSE}
+# using chi-square for Q27 natural environment (27i) vs people in developing countries (27f)
+CrossTable(test_df$Q27f_bin, test_df$Q27i_bin, chisq = TRUE)
+xtabs(~ Q27f_bin + Q27i_bin, data=test_df)
+chisq.test(test_df$Q27f_bin, test_df$Q27i_bin)
+
+```
+
+
+chi-square for Q27 natural environment (27i) vs plant and animal species (27g)
+
+```{r echo= FALSE}
+# using chi-square for Q27 natural environment (27i) vs plant and animal species (27g)
+CrossTable(test_df$Q27g_bin, test_df$Q27i_bin, chisq = TRUE)
+xtabs(~ Q27g_bin + Q27i_bin, data=test_df)
+chisq.test(test_df$Q27g_bin, test_df$Q27i_bin)
+
+```
+
+
+chi-square for Q27 natural environment (27i) vs the world's poor (27h)
+```{r echo= FALSE}
+# using chi-square for Q27 natural environment (27i) vs the world's poor (27h)
+CrossTable(test_df$Q27h_bin, test_df$Q27i_bin, chisq = TRUE)
+kable(xtabs(~ Q27h_bin + Q27i_bin, data=test_df))
+chisq.test(test_df$Q27h_bin, test_df$Q27i_bin)
+
+
+
+```
+
+
+### Question 27 clustering
+
+
+```{r echo=FALSE, message=FALSE}
+
+
+
+civil_df <- climate_df %>% 
+  filter(Q29 == 4) %>% 
+  mutate(Q27a_bin = case_when(Q27a == 1 | Q27a == 2 ~ "Sooner",
+                              Q27a == 3 | Q27a == 4 | Q27a == 5 ~ "Later"),
+         Q27b_bin = case_when(Q27b == 1 | Q27b == 2 ~ "Sooner",
+                              Q27b == 3 | Q27b == 4 | Q27b == 5 ~ "Later"),
+         Q27c_bin = case_when(Q27c == 1 | Q27c == 2 ~ "Sooner",
+                              Q27c == 3 | Q27c == 4 | Q27c == 5 ~ "Later"),
+         Q27d_bin = case_when(Q27d == 1 | Q27d == 2 ~ "Sooner",
+                              Q27d == 3 | Q27d == 4 | Q27d == 5 ~ "Later"),
+         Q27e_bin = case_when(Q27e == 1 | Q27e == 2 ~ "Sooner",
+                              Q27e == 3 | Q27e == 4 | Q27e == 5 ~ "Later"),
+         Q27f_bin = case_when(Q27f == 1 | Q27f == 2 ~ "Sooner",
+                              Q27f == 3 | Q27f == 4 | Q27f == 5 ~ "Later"),
+         Q27g_bin = case_when(Q27g == 1 | Q27g == 2 ~ "Sooner",
+                              Q27g == 3 | Q27g == 4 | Q27g == 5 ~ "Later"),
+         Q27h_bin = case_when(Q27h == 1 | Q27h == 2 ~ "Sooner",
+                              Q27h == 3 | Q27h == 4 | Q27h == 5 ~ "Later"),
+         Q27i_bin = case_when(Q27i == 1 | Q27i == 2 ~ "Sooner",
+                              Q27i == 3 | Q27i == 4 | Q27i == 5 ~ "Later"))
+
+
+# making binary variable values rather than character variable values
+
+Q27_bin_num_vars <- paste0("Q27", letters[1:9], "_bin_num")
+Q27_bin_num_vars
+
+civil_df <- civil_df %>% 
+  mutate(Q27a_bin_num = case_when(Q27a == 1 | Q27a == 2 ~ 0,
+                              Q27a == 3 | Q27a == 4 | Q27a == 5 ~ 1),
+         Q27b_bin_num = case_when(Q27b == 1 | Q27b == 2 ~ 0,
+                              Q27b == 3 | Q27b == 4 | Q27b == 5 ~ 1),
+         Q27c_bin_num = case_when(Q27c == 1 | Q27c == 2 ~ 0,
+                              Q27c == 3 | Q27c == 4 | Q27c == 5 ~ 1),
+         Q27d_bin_num = case_when(Q27d == 1 | Q27d == 2 ~ 0,
+                              Q27d == 3 | Q27d == 4 | Q27d == 5 ~ 1),
+         Q27e_bin_num = case_when(Q27e == 1 | Q27e == 2 ~ 0,
+                              Q27e == 3 | Q27e == 4 | Q27e == 5 ~ 1),
+         Q27f_bin_num = case_when(Q27f == 1 | Q27f == 2 ~ 0,
+                              Q27f == 3 | Q27f == 4 | Q27f == 5 ~ 1),
+         Q27g_bin_num = case_when(Q27g == 1 | Q27g == 2 ~ 0,
+                              Q27g == 3 | Q27g == 4 | Q27g == 5 ~ 1),
+         Q27h_bin_num = case_when(Q27h == 1 | Q27h == 2 ~ 0,
+                              Q27h == 3 | Q27h == 4 | Q27h == 5 ~ 1),
+         Q27i_bin_num = case_when(Q27i == 1 | Q27i == 2 ~ 0,
+                              Q27i == 3 | Q27i == 4 | Q27i == 5 ~ 1))
+
+
+
+
+
+civil_27_bin_df <- civil_df %>% 
+  select(Q27_bin_num_vars)
+
+
+#hdbscan without dim reduction
+
+hdbscan_cl <- hdbscan(civil_27_bin_df, minPts = 15)
+hdbscan_cl
+
+
+
+# hdbscan with dim reduction using UMAP
+
+# Step 1: dim reduction with UMAP from nine dimensions to two dimensions
+
+civil_umap <- umap(civil_27_bin_df)
+civil_umap
+names(civil_umap$layout)
+names(civil_umap$layout) <- c("dim1", "dim2")
+
+head(civil_umap$layout, 3)
+head(civil_umap$layout[,1])
+head(civil_umap$layout[,2])
+
+# visualize the reduction 
+plot(civil_umap$layout[,1], civil_umap$layout[,2])
+
+plot_df <- civil_umap$layout
+plot_df <- as_tibble(plot_df)
+names(plot_df) <- c("dim1", "dim2")
+ggplot(data = plot_df, aes(x = dim1, y = dim2)) +
+  geom_point()
+
+
+# perform clustering using HDBSCAN on the dim-reduced data
+
+hdbscan_umap_cl <- hdbscan(plot_df, minPts = 15)
+hdbscan_umap_cl
+#hdbscan_umap_cl$cluster
+
+# add the cluster labels to the plotting dataframe
+plot_df$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+plot_df %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of simplified Q27 using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+# add the cluster labels back to the original data set
+civil_27_bin_df$cluster <- hdbscan_umap_cl$cluster
+
+civil_27_bin_df %>% 
+  ggplot(aes(x = cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for simplified Question 27") +
+  theme_bw()
+
+
+
+
+######
+#
+# Clustering using unsimplified question 27 (values 1-5) rather than simplified question 27 (binary values - sooner (0) or later (1))
+#
+######
+
+
+civil_27_df <- civil_df %>% 
+  select(Q27_vars)
+
+# clustering on the unreduced data (pretty noisy)
+hdbscan_cl <- hdbscan(civil_27_df, minPts = 15)
+hdbscan_cl
+
+
+# perform dimension reduction and then try clustering
+
+# Step 1: dimension reduction from 9 dimensions to 2 dimensions using umap
+
+civil_umap <- umap(civil_27_df)
+civil_umap
+#names(civil_umap$layout)
+names(civil_umap$layout) <- c("dim1", "dim2")
+
+head(civil_umap$layout, 3)
+head(civil_umap$layout[,1])
+head(civil_umap$layout[,2])
+
+# visualized the reduction
+plot(civil_umap$layout[,1], civil_umap$layout[,2])
+
+plot_df <- civil_umap$layout
+plot_df <- as_tibble(plot_df)
+names(plot_df) <- c("dim1", "dim2")
+ggplot(data = plot_df, aes(x = dim1, y = dim2)) +
+  geom_point()
+
+
+hdbscan_umap_cl <- hdbscan(plot_df, minPts = 30)
+hdbscan_umap_cl
+#hdbscan_umap_cl$cluster
+
+
+plot_df$cluster <- hdbscan_umap_cl$cluster
+
+plot_df %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of unsimplified Q27 using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+  
+
+
+civil_27_df$cluster <- hdbscan_umap_cl$cluster
+
+
+
+
+
+
+```
+
+
+
+
+
+##### Question 27 
+Global warming will start to have serious impact on...
+
+(a) me personally
+(b) my family
+(c) people in my community
+(d) people in the United States
+(e) people in other modern industrialized countries
+(f) people in developing countries
+(g) plant and animal species
+(h) the world's poor
+(i) the natural environment
+
+1 = now, 2 = 10 yrs, 3 = 25 yrs, 4 = 50 yrs, 5 = Never
+
+
+```{r Q27 summary, echo = FALSE, message = FALSE}
+
+# climate_df %>% 
+#   filter(Q29 == 4) %>% 
+#   select(Q27_vars) %>% 
+#   summarize_all(list(~min(.), 
+#                      ~max(.),
+#                      ~mean(.), 
+#                      ~sd(.), 
+#                      ~median(.))) %>% 
+#   kable()
+
+stat_vars <- c("n", "mean", "sd", "median", "min", "max")
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  select(Q27_vars) %>% 
+  summarize_all(funs(min(.), 
+                     max(.),
+                     mean(.), 
+                     sd(.), 
+                     median(.),
+                     n(),
+                     mode(.))) %>% 
+  gather(stat, val) %>% 
+  separate(stat, into = c("item", "stat"), sep = "_") %>% 
+  spread(stat, val) %>% 
+  select(item, n, mean, sd, median, min, max) %>% 
+  mutate_at(stat_vars, as.numeric) %>% 
+  kable(digits = 2)
+
+
+
+```
+
+
+
+##### Question 28
+I believe that global warming is a(n)...
+
+(a) environmental issue)
+(b) moral issue
+(c) religious issue
+(d) social justice (fairness issue)
+(e) political issue
+(f) scientific issue
+(g) engineering issue
+(h) health issue
+(i) economic issue
+(j) national security issue
+(k) agricultural (farming, food) issue
+(l) poverty issue
+
+0 = strongly disagree, 1, 2, 3, 4 = strongly agree
+
+
+```{r Q28 summary, echo=FALSE, message=FALSE, warning = FALSE}
+
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  select(Q28_vars) %>% 
+  summarize_all(funs(min(.), 
+                     max(.),
+                     mean(.), 
+                     sd(.), 
+                     median(.),
+                     n(),
+                     mode(.))) %>% 
+  gather(stat, val) %>% 
+  separate(stat, into = c("item", "stat"), sep = "_") %>% 
+  spread(stat, val) %>% 
+  select(item, n, mean, sd, median, min, max) %>% 
+  mutate_at(stat_vars, as.numeric) %>% 
+  kable(digits = 2)
+
+
+```
+
+## Plots
+
+### Question 27 histograms
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+# Question 27 histograms
+# climate_df %>% 
+#   filter(Q29 == 4) %>% 
+#   select(Q27_vars) %>% 
+#   gather(key = "item", value = "response", Q27_vars) %>% 
+#   ggplot(aes(x = response)) +
+#   geom_histogram() + 
+#   facet_grid(item ~ .) +
+#   ggtitle("Distribution of Question 27 responses for civil engineering") +
+#   ylab("Count") +
+#   xlab("Item Response") +
+#   theme_bw() +
+#   theme(plot.title = element_text(size = 10))
+
+
+
+Q27_var_names <- c(
+  Q27a = "me",
+  Q27b = "my family",
+  Q27c = "my comm.",
+  Q27d = "US people",
+  Q27e = "ind. countr",
+  Q27f = "dev. countr",
+  Q27g = "plant/anim",
+  Q27h = "the poor",
+  Q27i = "nat. env."
+)
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  select(Q27_vars) %>% 
+  gather(key = "item", value = "response", Q27_vars) %>% 
+  ggplot(aes(x = response)) +
+  geom_histogram() + 
+  facet_grid(item ~ ., labeller = labeller(item = Q27_var_names)) +
+  ggtitle("Distribution of Question 27 responses for civil engineering") +
+  ylab("Count") +
+  xlab("Item Response") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 12, hjust = 0.5),
+        strip.text.y = element_text(size = 7))
+
+
+
+
+```
+
+
+
+### Question 28 histograms
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+# Question 28 histograms
+# climate_df %>% 
+#   filter(Q29 == 4) %>% 
+#   select(Q28_vars) %>% 
+#   gather(key = "item", value = "response", Q28_vars) %>% 
+#   ggplot(aes(x = response)) +
+#   geom_histogram() + 
+#   facet_grid(item ~ .) +
+#   ggtitle("Distribution of Question 28 responses for civil engineering") +
+#   ylab("Count") +
+#   xlab("Item Response") +
+#   theme_bw() +
+#   theme(plot.title = element_text(size = 10))
+
+
+
+
+Q28_var_names <- c(
+  Q28a = "environ",
+  Q28b = "moral",
+  Q28c = "religious",
+  Q28d = "soc. just.",
+  Q28e = "politic",
+  Q28f = "sci",
+  Q28g = "eng",
+  Q28h = "health",
+  Q28i = "economic",
+  Q28j = "security",
+  Q28k = "agricul",
+  Q28l = "poverty"
+)
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  select(Q28_vars) %>% 
+  gather(key = "item", value = "response", Q28_vars) %>% 
+  ggplot(aes(x = response)) +
+  geom_histogram() + 
+  facet_grid(item ~ ., labeller = labeller(item = Q28_var_names)) +
+  ggtitle("Distribution of Question 28 responses for civil engineering") +
+  ylab("Count") +
+  xlab("Item Response") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 12, hjust = 0.5),
+        strip.text.y = element_text(size = 7))
+
+
+
+```
+
+
+Making list of plots instead
+
+```{r echo=FALSE}
+
+Q28_hist <- map2(.x = Q28_vars, 
+                 .y = Q28_var_names, 
+                 .f = ~ climate_df %>% 
+  filter(Q29 == 4) %>% 
+  select(.x) %>% 
+  gather(key = "item", value = "response", .x) %>% 
+  ggplot(aes(x = response)) +
+  geom_histogram() + 
+  facet_grid(item ~ .) +
+  ggtitle("Distribution of Question 28 responses for civil engineering") +
+  ylab("Count") +
+  xlab("Item Response") +
+  theme_bw() +
+  theme(plot.title = element_text(size = 12, hjust = 0.5),
+        strip.text.y = element_text(size = 7)))
+
+for (i in seq_along(Q28_hist)) {
+  Q28_hist[[i]]
+}
+
+
+```

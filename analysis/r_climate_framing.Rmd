@@ -1,0 +1,330 @@
+---
+title: "r_climate_framing"
+author: "Katz and Shealy"
+date: "10/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+
+
+```{r}
+
+library(RColorBrewer)
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(knitr)
+library(purrr)
+library(tidytext)
+library(ggmosaic)
+
+library(quanteda)
+
+
+
+```
+
+
+
+
+```{r}
+
+frame_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/proposals/proposal 1 - students and framing/framing/Results/results_w_version_column.csv")
+
+frame_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/proposals/proposal 1 - students and framing/framing/Results/clustered_frame_df.csv")
+
+frame_df <- frame_df %>% 
+  mutate(Version = dplyr::case_when(Version == "technical" ~ "Technical",
+                             Version == "social" ~ "Social",
+                             Version == "control" ~ "Control"))
+
+```
+
+
+
+```{r}
+
+# look at counts
+frame_df %>% count(Version)
+
+frame_df %>% count(Version, frequency)
+
+
+```
+
+
+```{r}
+frame_df_long <- frame_df %>%
+  add_count(Version, name = "version_total") %>% 
+  pivot_longer(cols = Q1.1a:Q2.6b, names_to = "survey_item", values_to = "survey_response") %>% 
+  select(Version, frequency, percent_freq, survey_item, survey_response, version_total) %>% 
+  #filter(str_detect(survey_item, "a")) %>% 
+  mutate(survey_response_num = case_when(survey_response == "Yes" ~ 1, 
+                                         survey_response == "No" ~ 0))
+  
+  
+```
+
+
+
+
+```{r}
+#display.brewer.all(colorblindFriendly = TRUE)
+
+frame_df %>%
+  add_count(Version, name = "version_total") %>% 
+  pivot_longer(cols = Q1.1a:Q2.6b, names_to = "survey_item", values_to = "survey_response") %>% 
+  select(Version, frequency, percent_freq, survey_item, survey_response, version_total) %>% 
+  filter(str_detect(survey_item, "a")) %>% 
+  mutate(survey_response_num = case_when(survey_response == "Yes" ~ 1, 
+                                         survey_response == "No" ~ 0)) %>% 
+  group_by(Version, survey_item) %>% 
+  summarize(n = n(),
+            perc_yes = round(sum(survey_response_num) / n * 100, 1)) %>% 
+  ggplot(aes(x = Version, y = perc_yes, fill = Version)) +
+  geom_col() +
+  facet_wrap(survey_item ~ .) +
+  theme_light() +
+  theme(legend.position = "none") +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Percent of Students in Each Group Selecting Each Credit",
+       x = "Version",
+       y = "Percentage of Group Selecting Credit") +
+  theme(plot.title = element_text(size = 10, hjust = 0.5))
+
+```
+
+Double checking with mosaic plot
+
+```{r}
+# double check with a mosaic plot
+
+
+cont_table_q11 <- table(frame_df$Version, frame_df$Q1.1a)
+cont_table_q11
+chisq.test(cont_table_q11)
+
+
+mosaicplot(cont_table_q11, shade = TRUE, main = "Q1.1 for Framing Groups")
+
+
+```
+
+
+```{r}
+
+# double check with a mosaic plot
+
+
+cont_table_q23 <- table(frame_df$Version, frame_df$Q2.3a)
+cont_table_q23
+chisq.test(cont_table_q23, )
+
+
+mosaicplot(cont_table_q23, shade = TRUE, main = "Q2.3 for Framing Groups")
+
+
+test_df <- frame_df %>% filter(Version != "Social")
+
+cont_table_q23 <- table(test_df$Version, test_df$Q2.3a)
+cont_table_q23
+chisq.test(cont_table_q23)
+
+
+mosaicplot(cont_table_q23, shade = TRUE, main = "Q2.3 for Framing Groups")
+
+
+
+```
+
+
+Jittered boxplot of number of credits selected by each group
+
+
+```{r}
+
+frame_df %>% 
+  ggplot(aes(x = Version, y = frequency, color = Version)) +
+  geom_boxplot(alpha = 0.5) +
+  geom_jitter(alpha = 0.3,
+              height = 0.0,
+              width = 0.3) +
+  scale_y_continuous(limits = c(-0.1, 10),
+                     breaks = c(0, 2, 4, 6, 8, 10)) +
+  labs(title = "Number of Credits Selected by Framing Group",
+       x = "Framing Group",
+       y = "Number of Credits Selected") +
+  theme_light() +
+  scale_color_brewer(palette = "Dark2") +
+  theme(plot.title = element_text(hjust = 0.5, size = 10),
+        legend.position = "none")
+
+
+```
+
+
+
+Try logistic regression for effect sizes of treatment on binary outcomes for individual items
+
+Modeling selection of 1.3a
+
+```{r}
+frame_df <- frame_df %>% 
+  mutate(q13a_num = case_when(Q1.3a == "Yes" ~ 1,
+                              Q1.3a == "No" ~ 0))
+
+mod_13a <- glm(q13a_num ~ as.factor(Version), data = frame_df, family = binomial(link = 'logit'))
+summary(mod_13a)
+
+```
+
+Logistic regression for Q2.6a binary selection
+
+```{r}
+frame_df <- frame_df %>% 
+  mutate(q26a_num = case_when(Q2.6a == "Yes" ~ 1,
+                              Q2.6a == "No" ~ 0))
+
+mod_26a <- glm(q26a_num ~ as.factor(Version), data = frame_df, family = binomial(link = 'logit'))
+summary(mod_26a)
+
+```
+
+
+Kruskal-Wallis test for non-parametric version of ANOVA
+
+```{r}
+
+freq_kruskal_res <- kruskal.test(frequency ~ Version, data = frame_df)
+freq_kruskal_res
+
+```
+
+
+
+
+one-way ANOVA for frequency by treatment group
+
+```{r}
+
+freq_aov_res <- aov(frequency ~ Version, data = frame_df)
+summary(freq_aov_res)
+
+```
+
+One-way ANOVA for percent frequency by treatment group
+
+```{r}
+
+perc_freq_aov_res <- aov(percent_freq ~ Version, data = frame_df)
+summary(perc_freq_aov_res)
+
+```
+
+
+
+Text analysis
+
+
+```{r}
+frame_corpus <- frame_df_long %>% 
+  rowid_to_column(var = "docid") %>% 
+  filter(str_detect(survey_item, "b")) %>% 
+  rename(text = survey_response) %>% 
+  corpus()
+
+#summary(frame_corpus)
+
+```
+
+
+```{r}
+
+survey_items <- frame_df_long %>% 
+  filter(str_detect(survey_item, "b"))%>%
+  distinct(survey_item) %>% 
+  pull()
+
+
+for (i in survey_items){
+  
+  dfm_weight_version <- frame_corpus %>%
+       corpus_subset(survey_item == i) %>%
+       dfm(remove = stopwords("english"), remove_punct = TRUE) %>%
+       dfm_weight(scheme = "prop")
+  
+  
+  
+  
+  # Calculate relative frequency by president
+  freq_weight <- textstat_frequency(dfm_weight_version, n = 10, groups = "Version")
+  
+  plot <- ggplot(data = freq_weight, aes(x = nrow(freq_weight):1, y = frequency)) +
+       geom_point() +
+       facet_wrap(~ group, scales = "free") +
+       coord_flip() +
+       scale_x_continuous(breaks = nrow(freq_weight):1,
+                          labels = freq_weight$feature) +
+       labs(x = NULL, 
+            y = "Relative frequency",
+            title = paste0("Top 10 Words by Group for Item ", i)) +
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  print(plot)
+
+}
+
+
+
+
+# # single version
+# 
+# dfm_weight_version <- frame_corpus %>%
+#      corpus_subset(survey_item == "Q2.3b") %>%
+#      dfm(remove = stopwords("english"), remove_punct = TRUE) %>%
+#      dfm_weight(scheme = "prop")
+# 
+# 
+# 
+# 
+# # Calculate relative frequency by president
+# freq_weight <- textstat_frequency(dfm_weight_version, n = 10, groups = "Version")
+# 
+# ggplot(data = freq_weight, aes(x = nrow(freq_weight):1, y = frequency)) +
+#      geom_point() +
+#      facet_wrap(~ group, scales = "free") +
+#      coord_flip() +
+#      scale_x_continuous(breaks = nrow(freq_weight):1,
+#                         labels = freq_weight$feature) +
+#      labs(x = NULL, 
+#           y = "Relative frequency")
+# 
+
+
+```
+
+
+
+
+
+### Looking at clustered responses
+
+```{r}
+
+frame_df %>% select(Q1.3b, Q1.3b_cluster) %>% arrange(Q1.3b_cluster) %>% view()
+
+```
+
+
+
+
+
+

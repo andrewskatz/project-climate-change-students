@@ -1,0 +1,778 @@
+---
+title: "Random Forest - Interest in Water Supply"
+author: "Katz et al."
+date: "5/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(psych)
+library(tidyverse)
+library(tidymodels)
+library(ranger)
+library(purrrlyr)
+library(purrr)
+library(randomForest)
+library(pander)
+library(kableExtra)
+library(knitr)
+
+```
+
+
+
+Script for creating random forests for Q5 and Q16
+
+```{r}
+setwd("G:/My Drive/AK Faculty/Research/Projects/project students and climate change")
+
+climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/updated_climate_df_2.csv")
+
+#original data set
+#climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/climate_data.csv")
+
+
+```
+
+
+
+
+
+
+# Create a new dataframe for the random forest work
+
+Perform EFA for Q28
+
+```{r}
+
+
+
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+Q28_df <- climate_data %>% drop_na(Q28_vars) %>% select(Q28_vars)
+
+Q28_fa <- fa(Q28_df, nfactors = 2, fm = "ml", rotate = "oblimin")
+print(Q28_fa, cut = 0.3, digits = 3)
+# use `print(fa, digits = 3)` to view FLs < .3
+
+```
+
+Calculate Cronbach's alpha for internal consistency reliability
+
+```{r}
+
+
+FA1 <- c("Q28a", "Q28f", "Q28g", "Q28h", "Q28i", "Q28k")
+FA2 <- c("Q28c", "Q28d", "Q28e", "Q28j", "Q28l")
+
+alpha.fa1 <- psych::alpha(Q28_df[FA1])
+print(alpha.fa1, digits = 3) #0.91
+
+alpha.fa2 <- psych::alpha(Q28_df[FA2])
+print(alpha.fa2, digits = 3) #0.80
+
+
+```
+
+
+
+Add variables for Q28_tech_norm ((Q28a + Q28f + Q28g + Q28h + Q28i + Q28k) / 6) and Q28_social_norm ((Q28c + Q28d + Q28e + Q28j + Q28l) / 5)
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+```
+
+
+Perform EFA for Q12
+
+```{r}
+Q12_vars <- paste0("Q12", letters[1:9])
+
+Q12_df <- climate_data %>% drop_na(Q12_vars) %>% select(Q12_vars)
+
+Q12_fa <- fa(Q12_df, nfactors = 2, fm = "ml", rotate = "oblimin")
+print(Q12_fa, cut = 0.3, digits = 3)
+
+```
+
+
+```{r}
+
+FA1 <- c("Q12a", "Q12b", "Q12c")
+FA2 <- c("Q12d", "Q12e", "Q12f", "Q12g", "Q12h", "Q12i")
+
+alpha.fa1 <- psych::alpha(Q12_df[FA1])
+print(alpha.fa1, digits = 3) #0.83
+
+alpha.fa2 <- psych::alpha(Q12_df[FA2])
+print(alpha.fa2, digits = 3) #0.90
+
+```
+
+
+
+Add variables for Q12 factors (Q12abc_norm (a+b+c)/3 and Q12_defghi_norm = (d+e+f+g+h+i)/6)
+
+```{r}
+
+climate_data <- climate_data %>% 
+  mutate(Q12abc_norm = Q12abc / 3,
+         Q12defghi_norm = Q12defghi / 6)
+
+```
+
+
+
+Remove majors with fewer than 30 students and students with NA for major
+
+
+```{r}
+
+
+climate_data %>% count(Q29, sort = TRUE)
+climate_data %>% count(major, sort = TRUE)
+cutoff <- 30
+
+climate_data <- climate_data %>% 
+  add_count(Q29, name = "major_count") %>% 
+  filter(major_count > cutoff) %>% 
+  filter(!is.na(Q29))
+
+climate_data %>% count(Q29, sort = TRUE)
+
+```
+
+
+Fill in Q1, Q3, Q5, Q7, Q39 NAs with 0's (the way they were coded, it's ambiguous if an NA is there intentionally by the participant, so this is a conservative assumption to make that an NA actually corresponds to an intentional omission rather than an accidental omission)
+
+
+```{r}
+# prepraing the data
+# start with the climate_data dataframe
+
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+
+
+#str(climate_data)
+
+### old way to remove disciplines with 
+# rf_df <- climate_data %>% 
+#   filter(!is.na(Q29)) %>% 
+#   filter(Q29 != 15) %>% 
+#   filter(Q29 != 14) %>% 
+#   filter(Q29 != 9) %>% 
+#   filter(Q29 != 2)
+
+rf_df <- climate_data
+
+rf_df %>% group_by(Q29) %>% count()
+
+#rf_df[, Q1_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q1_vars), ~replace_na(., 0))
+#rf_df[, Q1_vars]
+
+#rf_df[, Q3_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+#rf_df[, Q3_vars]
+
+#rf_df[,Q5_vars]
+
+#rf_df[, Q7_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q7_vars), ~ replace_na(., 0))
+#rf_df[,Q7_vars]
+
+#rf_df[, Q35_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q35_vars), ~ replace_na(., 0))
+#rf_df[,Q35_vars]
+
+#rf_df[, Q39_vars]
+rf_df <- rf_df %>% mutate_at(vars(Q39_vars), ~ replace_na(., 0))
+#rf_df[,Q39_vars]
+```
+
+
+Drop individual Q12, Q16, and Q28 items. Q16 items were too similar to Q5 items and Q28 items were factored
+
+```{r}
+Q12_vars <- paste0("Q12", letters[1:9])
+Q16_vars <- paste0("Q16", letters[1:13])
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+rf_df <- rf_df %>% drop_na(Q12_vars)
+rf_df <- rf_df %>% drop_na(Q16_vars)
+rf_df <- rf_df %>% drop_na(Q28_vars)
+
+
+
+```
+
+Turn the variables into factors
+
+```{r}
+# turning variables into factors
+
+
+#rf_df <- dmap(rf_df, as.factor)
+```
+
+
+Remove additional columns that will not feed into the random forest algorithm
+
+```{r}
+
+# remove columns with majority na (noticed from visual inspection)
+removal_vars <- c("School", "Litho", "major", "Q33_", 
+                  "Q37_", "Q38_", "Q39_", "Q40", "abe", "Q16abc", "lm", "dfg", "hijk",
+                  "spec", "other", "tally", "ele", "Q16_bin", "_ind")
+
+# Q13, Q14 were originally on the removal list - not sure why - need to add back in
+
+# consider removing "sum" from the above
+
+removal_vars_start <- paste0("^(", paste(removal_vars, collapse="|"), ")")
+removal_vars_end <- paste0("(", paste(removal_vars, collapse="|"), ")$")
+
+
+# create a dataframe called train_df that we'll use for training the random forests
+train_df <- rf_df %>% dplyr::select(-matches(removal_vars_start))
+train_df <- train_df %>% dplyr::select(-matches(removal_vars_end))
+
+train_df <- train_df %>% 
+  dplyr::select(-Q28_tech, -Q28_social, -Q28afghik, -Q28cdej, -Q12abc, -Q12defghi)
+train_df <- train_df %>% dplyr::select(-Q28_vars)
+train_df <- train_df %>% dplyr::select(-Q1_vars)
+
+
+
+# remove the original Q7 vars because they were too messy - use tallies instead
+
+# remove other Q5 variables aside from 5e
+
+Q5_removals <- c("Q5a","Q5b", "Q5c", "Q5d", "Q5e", "Q5g", "Q5h", "Q5i", "Q5j")
+
+train_df <- train_df %>% dplyr::select(-Q7_vars)
+train_df <- train_df %>% dplyr::select(-Q16_vars) # drop Q16 vars for Q5 training
+train_df <- train_df %>% dplyr::select(-Q5_removals)
+#train_df <- train_df %>% dplyr::select(-Q16_energy)
+
+
+train_df <- train_df %>% 
+  mutate(Q5f = as.factor(Q5f),
+         Q29 = as.factor(Q29))
+
+train_df %>% count(Q5f)
+
+```
+
+
+Remove observations with more than 10% obs missing
+
+```{r}
+# remove rows with too many nas (defined as more than 10% of variables)
+
+# full implementation
+train_df <- train_df[!rowSums(is.na(train_df)) > ncol(train_df)*.1,] # reduced df by ~47 to 3127
+
+```
+
+
+
+
+Impute data for the remaining cases
+
+```{r}
+
+#train_df_2 <- mice(train_df, maxit = 2, m = 2, seed = 1)
+
+```
+
+```{r}
+# Old method for reading in data
+
+#train_df_2 <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/filtered_climate_survey_20200509.csv")
+```
+
+
+
+
+Create random forest for Q5f with tidymodels framework
+```{r}
+
+set.seed(42)
+
+
+
+
+# looking at specific outcome variables
+table(train_df$Q5f)
+
+# create train and test split
+
+q5f_split <- train_df %>% 
+  initial_split(strata = Q5f)
+
+q5f_train <- training(q5f_split) # 2440 x 288
+q5f_test <- testing(q5f_split) # 812 x 288
+
+
+#check to make sure stratified correctly
+table(q5f_train$Q5f)
+
+```
+
+
+
+Create the random forest model specification
+```{r}
+
+# rf_spec <- rand_forest(mode = "classification") %>% 
+#   set_engine("ranger")
+# 
+# rf_spec
+
+```
+
+Create the random forest model fit
+
+```{r}
+
+# remove other Q5 variables
+
+
+# rf_fit <- rf_spec %>% 
+#   fit(Q5f ~ ., 
+#       data = q5f_train
+#       )
+# 
+# rf_fit
+
+```
+
+
+
+
+```{r}
+
+# rf_mod <- randomForest(formula = Q5f ~ ., 
+#                        data = q5f_train,
+#                        ntree = 1000,
+#                        proximity = TRUE,
+#                        na.action = na.roughfix,
+#                        importance = TRUE)
+
+set.seed(42)
+
+
+rf_mod <- randomForest(formula = Q5f ~ ., 
+                       data = train_df,
+                       ntree = 1000,
+                       proximity = TRUE,
+                       na.action = na.roughfix,
+                       importance = TRUE)
+
+
+
+```
+
+
+
+```{r}
+
+imp <- importance(rf_mod, type = 1, scale = F) # permutation importances 
+#(specifying "type = 1" pulls MeanDecreaseAccuracy instead of MeanDecreaseGini)
+
+```
+
+Manual way of collecting variable importance data
+
+```{r}
+
+#row.names(imp)
+featureImportance <- data.frame(Feature = row.names(imp), Importance = imp[,1])
+
+p <- featureImportance %>% 
+  top_n(30, Importance) %>% 
+  ggplot(aes(x = reorder(Feature, -Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "#53cfff", width = 0.65) +
+  coord_flip() + 
+  theme_light(base_size = 20) +
+  theme(axis.title.x = element_text(size = 10, color = "black"),
+        axis.title.y = element_blank(),
+        axis.text.x  = element_text(size = 10, color = "black"),
+        axis.text.y  = element_text(size = 10, color = "black"),
+        plot.title = element_text(size = 10, hjust = 0.5)) +
+  ggtitle("Random Forest Variable Importance for Career Interest in Water Supply")
+
+p
+
+
+
+```
+
+
+
+
+Calculate variable importance and plot using permutation
+
+```{r}
+# library(vip)
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+## Create logistic regression model with Q5d (address climate change in career) and the following predictors:
+Q20d
+Q18c
+Q18k
+Q28_tech_norm (afghjk - global warming as technical issue divided by 6)
+Q29
+Q23a
+Q23d
+
+
+
+```{r}
+set.seed(123)
+
+
+# subset the original climate dataset AND make 5d (the outcome) and Q29 (major) factors
+lr_df <- train_df %>% 
+  dplyr::select(Q5d, Q20d, Q18c, Q18k, Q28_tech_norm, Q23a, Q23d, Q29) %>% 
+  mutate(Q5d = as.factor(Q5d),
+         Q29 = as.factor(Q29))
+
+
+# make mechanical engineering the reference level for logistic regression models
+lr_df$Q29 <- fct_relevel(lr_df$Q29, "13") 
+
+# check the structure of the logistic regression data frame to make sure everything coded correctly
+str(lr_df)
+
+```
+
+
+```{r}
+# create the train/test split
+
+# lr_split <- initial_split(lr_df, strata = Q5d)
+# lr_train <- training(lr_split)
+# lr_test <- testing(lr_split)
+# 
+# str(lr_train)
+```
+
+
+Create bootstrap resamples
+
+
+```{r}
+# create the model recipe (preprocessing steps)
+
+lr_rec <- recipe(Q5d ~ ., data = lr_df) %>% 
+  step_zv(all_numeric()) %>% 
+  step_center(all_numeric())
+
+```
+
+
+```{r}
+# prep the recipe
+lr_prep <- lr_rec %>% 
+  prep()
+
+lr_prep  
+
+
+
+```
+
+Create the training data with all the preprocessing and then specify the model
+
+```{r}
+## Code just to run one model
+
+lr_juiced <- juice(lr_prep)
+
+glm_spec <- logistic_reg() %>%
+  set_engine("glm")
+
+glm_fit <- glm_spec %>%
+  fit(Q5d ~ ., data = lr_juiced)
+
+glm_fit
+
+
+
+```
+
+
+old school model creation
+
+Create the bootstrap resamples
+
+```{r}
+lr_juiced <- juice(lr_prep)
+
+lr_boot <- bootstraps(lr_juiced,
+                      times = 1e4,
+                      apparent = TRUE)
+
+#lr_boot
+```
+
+Cretae the bootstrap regression model (make 1e4 models on the bootstrap samples)
+
+```{r}
+q5d_models <- lr_boot %>% 
+  mutate(
+    model = purrr::map(splits, ~ glm(Q5d ~ ., data = ., family = binomial(link = 'logit'))),
+    coef_info = purrr::map(model, tidy))
+```
+
+Collect the bootstrap regression model statistics
+```{r}
+q5d_coefs <- q5d_models %>% 
+  unnest(coef_info)
+
+#q5d_coefs
+
+```
+
+Look at the distribution of logistic regression model coefficients
+
+```{r}
+q5d_coefs %>%
+  ggplot(aes(estimate)) +
+  geom_histogram(alpha = 0.7, fill = "cyan3") +
+  facet_wrap(. ~ term, scales = "free")
+```
+
+
+```{r}
+q5d_coefs %>%
+  ggplot(aes(x = estimate, y = term)) +
+  geom_boxplot(alpha = 0.7)
+```
+
+
+```{r}
+
+q5d_coefs %>%
+  filter(term %in% c("Q18c", "Q18k", "Q20d", "Q23a", "Q23d", "Q28_tech_norm")) %>% 
+  ggplot(aes(x = estimate, y = fct_reorder(term, estimate))) +
+  geom_boxplot(alpha = 0.7) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Coefficient estimate",
+       y = "Survey item",
+       title = "Distribution of bootstrapped logistic regression coefficient estimates") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_minimal()
+
+```
+
+
+```{r}
+# probably want to drop nuclear engineering Q29_15 (only 3 students) and engineering physics Q29_9 (only 6 students)
+
+q5d_coefs %>%
+  filter(!term %in% c("Q18c", "Q18k", "Q20d", "Q23a", "Q28_tech_norm", "(Intercept)", 
+                      "Q292", "Q299", "Q2914", "Q2915")) %>% 
+  filter(estimate > -10) %>% 
+  mutate(term = case_when(term == "Q291" ~ "aero",
+                          term == "Q292" ~ "ag/bio",
+                          term == "Q293" ~ "bio/bme",
+                          term == "Q294" ~ "civil",
+                          term == "Q295" ~ "chemical",
+                          term == "Q296" ~ "construc",
+                          term == "Q297" ~ "comp eng",
+                          term == "Q298" ~ "electric",
+                          term == "Q2910" ~ "env/eco",
+                          term == "Q2911" ~ "ind/sys",
+                          term == "Q2912" ~ "material",
+                          term == "Q2913" ~ "mech",
+                          term == "Q2914" ~ "mining",
+                          term == "Q2916" ~ "software",
+                          term == "Q2917" ~ "struc/arch",
+                          term == "Q2918" ~ "general")) %>% 
+  filter(term != "NA") %>% 
+  ggplot(aes(x = estimate, y = fct_reorder(term, estimate))) +
+  geom_boxplot(alpha = 0.7) +
+  geom_vline(xintercept = 0) +
+  labs(x = "Coefficient estimate",
+       y = "Major",
+       title = "Distribution of bootstrapped logistic regression coefficient estimates") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_minimal()
+
+```
+
+Calculate confidence intervals for model coefficients at the 0.01 level to get an estimate of the sampling distribution of each coefficient estimate
+
+```{r}
+int_pctl(q5d_models, coef_info, alpha = 0.01) %>% 
+  arrange(-.estimate) %>% 
+  pander()
+
+
+```
+
+
+
+```{r}
+#glm_fit_2 <- glm(Q5d ~ ., data = lr_juiced, family = binomial(link = 'logit'))
+
+
+```
+
+Run ANOVA on model
+```{r}
+#anova(glm_fit$fit, test="Chisq")
+
+#pander(anova(glm_fit_2, test="Chisq"))
+
+```
+
+
+
+Evaluate model metrics
+
+
+```{r}
+
+# glm_fit %>% 
+#   tidy() %>% 
+#   arrange(-estimate) %>% 
+#   pander()
+
+
+```
+
+
+
+Evalute the models with resampling (i.e., cross validation to get a distribution of coefficient estimates).
+This works by working off the training set and creating analysis/assessment splits depending on the number
+of folds in v-fold cross validation.
+(set v = 100)
+
+```{r}
+
+set.seed(135)
+
+# 10-fold cross validation
+folds <- vfold_cv(lr_juiced, v = 100, strata = Q5d)
+
+```
+
+
+After creating the folds, need to fit the resamples using fit_resamples.
+This creates model metrics for each of the folds
+
+
+```{r}
+
+set.seed(111)
+glm_rs <- glm_spec %>% 
+  fit_resamples(
+    lr_rec,
+    folds,
+    metrics = metric_set(roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+  )
+
+```
+
+
+Collect the metrics for the models from the resampling procedure
+
+```{r}
+glm_rs %>% 
+  collect_metrics() %>% 
+  pander()
+
+```
+
+
+Take a look at the metrics with a plot
+
+
+```{r}
+glm_rs %>% 
+  unnest(.predictions) %>% 
+  roc_curve(Q5d, .pred_1) %>% 
+  ggplot(aes(x = 1-specificity, y = sensitivity)) +
+  geom_line(size = 1.5) +
+  geom_abline(
+    lty = 2, alpha = 0.5,
+    color = "gray50",
+    size = 1.2
+  ) +
+  theme_minimal()
+```
+
+
+
+```{r}
+
+glm_rs %>% 
+  unnest(.predictions) %>% 
+  roc_curve(Q5d, .pred_1) %>% 
+  ggplot(aes(x = 1-specificity, y = sensitivity)) +
+  geom_line(size = 1.5) +
+  geom_abline(
+    lty = 2, alpha = 0.5,
+    color = "gray50",
+    size = 1.2
+  ) +
+  theme_minimal()
+
+```
+
+
+
+
+Predict on the test data
+
+```{r}
+# str(lr_test)
+# 
+# glm_fit %>%
+#   predict(
+#     new_data = bake(lr_prep, lr_test),
+#     type = "prob"
+#   ) %>%
+#   mutate(truth = lr_test$Q5d) %>%
+#   roc_auc(truth, .pred_1)
+
+```
+

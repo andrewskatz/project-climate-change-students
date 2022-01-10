@@ -1,0 +1,703 @@
+---
+title: "CAREER_prelim"
+author: "Katz et al."
+date: "5/23/2021"
+output: html_document
+---
+
+
+
+
+
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+theme_set(theme_light() +
+            theme(plot.title = element_text(hjust= 0.5, size = 9)))
+```
+
+```{r}
+library(psych)
+library(tidyverse)
+library(tidymodels)
+library(ranger)
+library(purrrlyr)
+library(purrr)
+library(randomForest)
+library(pander)
+library(kableExtra)
+library(knitr)
+library(scales)
+
+```
+
+
+
+Script for creating random forests for Q5 and Q16
+
+```{r}
+setwd("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering")
+
+# climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/updated_climate_df_2.csv")
+
+
+#original data set
+#climate_data <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/climate_data.csv")
+
+# read in the imputed dataset
+climate_imp_long_full <- read_csv("climate_imp_long_40_full_inf_cl_hdb_agg_20210518.csv")
+```
+
+
+```{r}
+pub_ds_ver <- 1
+climate_data <- climate_imp_long_full %>% filter(.imp == pub_ds_ver)
+
+rm(climate_imp_long_full)
+
+```
+
+
+## Q8j
+
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q8j)) + 
+  geom_histogram() +
+  labs(title = "Q8j")
+
+climate_data %>% 
+  ggplot(aes(x = Q8j, y = major)) +
+  geom_boxplot() +
+  labs(title = "Q8j")
+
+```
+
+
+
+
+## Q8n:
+
+
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q8n)) + 
+  geom_histogram() +
+  labs(title = "Q8n")
+
+climate_data %>% 
+  ggplot(aes(x = Q8n, y = major)) +
+  geom_boxplot(aes(fill = major)) +
+  geom_jitter(width = 0.1, alpha = 0.2) +
+  labs(title = "Q8n") +
+  theme(legend.position = "none")
+
+```
+
+
+
+## Q13a
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q13a)) + 
+  geom_histogram() +
+  labs(title = "Q13a")
+
+climate_data %>% 
+  ggplot(aes(x = Q13a, y = major)) +
+  geom_boxplot(aes(fill = major)) +
+  geom_jitter(width = 0.1, alpha = 0.2) +
+  labs(title = "Q13a") +
+  theme(legend.position = "none")
+
+```
+
+
+
+## Q13b
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q13b)) + 
+  geom_histogram() +
+  labs(title = "Q13b")
+
+climate_data %>% 
+  ggplot(aes(x = Q13b, y = major)) +
+  geom_boxplot(aes(fill = major)) +
+  geom_jitter(width = 0.1, alpha = 0.2) +
+  labs(title = "Q13b") +
+  theme(legend.position = "none")
+
+```
+
+
+
+
+
+## Q13c
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q13c)) + 
+  geom_histogram() +
+  labs(title = "Q13c")
+
+climate_data %>% 
+  ggplot(aes(x = Q13c, y = major)) +
+  geom_boxplot(aes(fill = major)) +
+  geom_jitter(width = 0.1, alpha = 0.2) +
+  labs(title = "Q13c") +
+  theme(legend.position = "none")
+
+```
+
+
+
+## Q14a
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q14b)) + 
+  geom_histogram() +
+  labs(title = "Q14b")
+
+climate_data %>% 
+  ggplot(aes(x = Q14b, y = major)) +
+  geom_boxplot(aes(fill = major)) +
+  geom_jitter(width = 0.1, alpha = 0.2) +
+  labs(title = "Q14b") +
+  theme(legend.position = "none")
+
+```
+
+
+
+
+## Q14c
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q14c)) + 
+  geom_histogram() +
+  labs(title = "Q14c")
+
+climate_data %>% 
+  ggplot(aes(x = Q14c, y = major)) +
+  geom_boxplot(aes(fill = major)) +
+  geom_jitter(width = 0.1, alpha = 0.2) +
+  labs(title = "Q14c") +
+  theme(legend.position = "none")
+
+```
+
+
+
+## Q14d
+
+```{r}
+
+climate_data %>% 
+  ggplot(aes(x = Q14d)) + 
+  geom_histogram() +
+  labs(title = "Q14d")
+
+climate_data %>% 
+  ggplot(aes(x = Q14d, y = major)) +
+  geom_boxplot(aes(fill = major)) +
+  geom_jitter(width = 0.1, alpha = 0.2) +
+  labs(title = "Q14d") +
+  theme(legend.position = "none")
+
+```
+
+
+Q8: Please indicate how often the following occurred in your most recent engineering design course.
+
+
+Q8j = The teacher related course concepts to contemporary issues in the world
+Q8n = The teacher related course concepts to helping people
+
+
+Q13a = I sometimes find it difficult to see things from another person’s point of view
+Q13b = I try to look at everybody’s side of a disagreement before I make a decision
+Q13c = When I am upset at someone, I usually try to “put myself in their shoes” for a while
+
+
+
+Q14a = I seek input from those with a different perspective from me
+Q14b = I identify relationships between topics from different courses
+Q14c = I analyze projects broadly to find a solution that will have the greatest impact
+Q14d = When problem solving, I focus on the relationship between issues
+Q14e = I hope to gain general knowledge across multiple fields
+Q14f = I often learn from my classmates
+Q14g = I seek feedback and suggestions for personal improvement
+
+
+Q15: How confident are you in your ability to do the following:
+Q15a = Find sources of inspiration not obviously related to a given problem
+Q15b = Effectively work on a problem that does not have an obvious solution
+Q15c = Change the definition of a problem you are working on
+Q15d = Adapt an engineering solution for a culture different from your own
+Q15e = Shape or change your external environment to help you be more creative
+Q15f = Share your work with other before it is finished
+Q15g = Try an approach to a problem that may not be the final or best solution
+Q15h = Continue work on a problem after experiencing a significant failure
+Q15i = Help others be more creative
+Q15j = Identify and implement ways to enhance your own creativity
+Q15k = Explicitly define or describe your creative process
+Q15l = Solve problems in ways that others would consider creative
+
+
+
+Q17: In your opinion, to what extent are the following associated with the field of engineering?
+Q17a = Creating economic growth
+Q17b = Preserving national security
+Q17c = Improving quality of life
+Q17d = Saving lives
+Q17e = Caring for communities
+Q17f = Protecting the environment
+Q17g = Including women as participants in the field
+Q17h = Including racial and ethnic minorities as participants in the field
+Q17i = Addressing societal concerns
+Q17j = Feeling a moral obligation to other people
+
+
+Q18: To what extent do you disagree or agree with the following.
+Q18a = We can pursue sustainability without lowering our standard of living
+Q18b = Human ingenuity will ensure that we do not make the earth unlivable
+Q18c = I feel a responsibility to deal with environmental problems
+Q18d = Environmental problems make the future look hopeless
+Q18e = I can personally contribute to a sustainable future
+Q18f = Nothing I can do will make things better in other places on the planet
+Q18g = Pursuit of sustainability will threaten jobs for people like me
+Q18h = Sustainable options typically cost more
+Q18i = I have the knowledge to understand most sustainability issues
+Q18j = I think of myself as part of nature, not separate from it
+Q18k = We should be taking stronger actions to address climate change
+Q18l = Engineers are responsible for the majority of environmental problems society faces today
+
+
+
+```{r}
+Q14_vars <- paste0("Q14", letters[1:7])
+Q15_vars <- paste0("Q15", letters[1:12])
+Q16_vars <- paste0("Q16", letters[1:12])
+Q17_vars <- paste0("Q17", letters[1:10])
+Q18_vars <- paste0("Q18", letters[1:12])
+
+select_vars <- c("student_id", "major", "Q8j", "Q8n", "Q13a", "Q13b", "Q13c",
+                 Q14_vars, Q15_vars, Q17_vars, Q16_vars, Q18_vars)
+```
+
+
+```{r}
+nested_items <- climate_data %>% 
+  select(all_of(select_vars)) %>% 
+  pivot_longer(cols = -c(student_id, major), names_to = "variable_name", values_to = "variable_value") %>% 
+  group_by(variable_name) %>% 
+  nest() %>% 
+  ungroup()
+
+nested_items
+
+
+```
+
+
+```{r}
+# create list with full text of items
+full_text_list <- c("Q8j = The teacher related course concepts to contemporary issues in the world",
+                    "Q8n = The teacher related course concepts to helping people",
+                    "Q13a = I sometimes find it difficult to see things from another person’s point of view",
+                    "Q13b = I try to look at everybody’s side of a disagreement before I make a decision",
+                    "Q13c = When I am upset at someone, I usually try to “put myself in their shoes” for a while",
+                    "Q14a = I seek input from those with a different perspective from me",
+                    "Q14b = I identify relationships between topics from different courses",
+                    "Q14c = I analyze projects broadly to find a solution that will have the greatest impact",
+                    "Q14d = When problem solving, I focus on the relationship between issues",
+                    "Q14e = I hope to gain general knowledge across multiple fields",
+                    "Q14f = I often learn from my classmates",
+                    "Q14g = I seek feedback and suggestions for personal improvement",
+                    "Q15a = Find sources of inspiration not obviously related to a given problem",
+                    "Q15b = Effectively work on a problem that does not have an obvious solution",
+                    "Q15c = Change the definition of a problem you are working on",
+                    "Q15d = Adapt an engineering solution for a culture different from your own",
+                    "Q15e = Shape or change your external environment to help you be more creative",
+                    "Q15f = Share your work with other before it is finished",
+                    "Q15g = Try an approach to a problem that may not be the final or best solution",
+                    "Q15h = Continue work on a problem after experiencing a significant failure",
+                    "Q15i = Help others be more creative",
+                    "Q15j = Identify and implement ways to enhance your own creativity",
+                    "Q15k = Explicitly define or describe your creative process",
+                    "Q15l = Solve problems in ways that others would consider creative",
+                    "Q17a = Creating economic growth",
+                    "Q17b = Preserving national security",
+                    "Q17c = Improving quality of life",
+                    "Q17d = Saving lives",
+                    "Q17e = Caring for communities",
+                    "Q17f = Protecting the environment",
+                    "Q17g = Including women as participants in the field",
+                    "Q17h = Including racial and ethnic minorities as participants in the field",
+                    "Q17i = Addressing societal concerns",
+                    "Q17j = Feeling a moral obligation to other people",
+                    "Q18a = We can pursue sustainability without lowering our standard of living",
+                    "Q18b = Human ingenuity will ensure that we do not make the earth unlivable",
+                    "Q18c = I feel a responsibility to deal with environmental problems",
+                    "Q18d = Environmental problems make the future look hopeless",
+                    "Q18e = I can personally contribute to a sustainable future",
+                    "Q18f = Nothing I can do will make things better in other places on the planet",
+                    "Q18g = Pursuit of sustainability will threaten jobs for people like me",
+                    "Q18h = Sustainable options typically cost more",
+                    "Q18i = I have the knowledge to understand most sustainability issues",
+                    "Q18j = I think of myself as part of nature, not separate from it",
+                    "Q18k = We should be taking stronger actions to address climate change",
+                    "Q18l = Engineers are responsible for the majority of environmental problems society faces today")
+
+full_text_list <- as.list(full_text_list)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# nested_items$data[[1]]
+
+```
+
+```{r}
+var_names_list <- as.list(nested_items$variable_name)
+```
+
+
+```{r}
+purrr::map2(.x = nested_items$data, .y = full_text_list,
+            ~ ggplot(.x, aes(x = variable_value)) + 
+              geom_histogram() +
+              facet_wrap(.~major) +
+              labs(title = .y))
+
+```
+
+
+
+```{r}
+major_num <- length(unique(nested_items$data[[1]]$major))
+major_colors <- viridis_pal(begin = 0.01, end = 0.99)(major_num)
+
+
+purrr::map2(.x = nested_items$data, .y = var_names_list,
+           ~ ggplot(.x, aes(x = variable_value, y = major)) +
+             geom_boxplot(aes(fill = .$major)) +
+             geom_jitter(width = 0.1, alpha = 0.2, height = 0.3) +
+             labs(title = .y,
+                  x = "Variable Value",
+                  y = "Major") +
+             theme(legend.position = "none") +
+             scale_fill_manual(values = major_colors))
+
+```
+
+
+
+
+
+
+
+```{r}
+
+purrr::map2(.x = nested_items$data, .y = full_text_list,
+           ~ ggplot(.x, aes(x = variable_value, y = major)) +
+             geom_boxplot(aes(fill = major)) +
+             geom_jitter(width = 0.1, alpha = 0.2, height = 0.3) +
+             labs(title = .y,
+                  x = "Variable Value",
+                  y = "Major") +
+             theme(legend.position = "none") +
+             scale_fill_manual(values = major_colors))
+
+```
+
+
+
+### Sources of understanding about global climate change
+
+```{r}
+
+
+climate_data %>% 
+  pivot_longer(cols = Q21a:Q21f, names_to = "Q21_item", values_to = "Q21_value") %>% 
+  select(student_id, cluster_time_rank_agg, Q21_item, Q21_value) %>% 
+  mutate(Cluster = as_factor(cluster_time_rank_agg)) %>% 
+  ggplot(aes(x = Q21_value, y = Cluster)) +
+  geom_boxplot() +
+  facet_wrap(.~Q21_item)
+
+
+```
+
+```{r}
+
+
+climate_data %>% 
+  pivot_longer(cols = Q21a:Q21f, names_to = "Q21_item", values_to = "Q21_value") %>% 
+  select(student_id, cluster_time_rank_agg, Q21_item, Q21_value) %>% 
+  mutate(Cluster = as_factor(cluster_time_rank_agg),
+         Q21_item = case_when(Q21_item == "Q21a" ~ "Courses",
+                              Q21_item == "Q21b" ~ "Internet/Books",
+                              Q21_item == "Q21c" ~ "Friend/Family",
+                              Q21_item == "Q21d" ~ "Sci/Acad Pubs",
+                              Q21_item == "Q21e" ~ "Climate Scientists",
+                              Q21_item == "Q21f" ~ "Mainstream Media")) %>% 
+  ggplot(aes(x = Q21_value)) +
+  geom_bar() +
+  facet_grid(Cluster ~ Q21_item) +
+  labs(title = "Information Sources by Cluster",
+       x = "Which has contributed most to your understanding of global climate change? (0 = Not at all, 4 = A lot",
+       y = "Count")
+
+
+```
+
+
+```{r}
+climate_data %>% 
+  ggplot(aes(x = cluster_time_rank_agg, y = major)) +
+  geom_boxplot()
+
+climate_data %>% 
+  ggplot(aes(x = cluster_time_rank_agg)) +
+  geom_histogram() +
+  facet_grid(major ~. )
+```
+
+
+```{r}
+climate_data %>% count(major)
+
+climate_data %>% 
+  add_count(major) %>% 
+  select(student_id, major, n)
+```
+
+
+```{r}
+climate_data %>% 
+  count(major)
+
+climate_data %>% 
+  group_by(major, cluster_time_rank_agg) %>% 
+  summarize(major_cluster_count = n()) %>% 
+  ungroup() %>% 
+  group_by(major) %>% 
+  add_tally(major_cluster_count, name = "major_total") %>% 
+  ungroup() %>% 
+  mutate(major_cluster_proportion = major_cluster_count / major_total) %>% 
+  ggplot(aes(x = cluster_time_rank_agg, y = major_cluster_proportion)) +
+  geom_col() +
+  facet_grid(major ~.) +
+  scale_x_continuous(breaks = c(1, 2, 3, 4, 5, 6, 7, 8, 9)) +
+  labs(x = "Spatiotemporal Belief Pattern Cluster (1 = Everything affected now, 9 = Nothing ever affected",
+       y = "Proportion of Major in Each Cluster",
+       title = "Spatiotemporal Belief Pattern Portions by Major")
+
+
+climate_data %>% count(Q37)
+
+
+
+```
+
+
+
+
+
+
+
+
+
+# Ordinal forest for students feeling responsibility to deal with environmental problems
+
+
+
+
+Turn the variables into factors
+
+```{r}
+# turning variables into factors
+
+
+#rf_df <- dmap(rf_df, as.factor)
+```
+
+
+Remove additional columns that will not feed into the random forest algorithm
+
+```{r}
+
+# remove columns with majority na (noticed from visual inspection)
+removal_vars <- c("School", "Litho", "major", "Q33_", 
+                  "Q37_", "Q38_", "Q39_", "Q40", "abe", "Q16abc", "lm", "dfg", "hijk",
+                  "spec", "other", "tally", "ele", "Q16_bin", "_ind")
+
+# Q13, Q14 were originally on the removal list - not sure why - need to add back in
+
+# consider removing "sum" from the above
+
+removal_vars_start <- paste0("^(", paste(removal_vars, collapse="|"), ")")
+removal_vars_end <- paste0("(", paste(removal_vars, collapse="|"), ")$")
+
+
+# create a dataframe called train_df that we'll use for training the random forests
+train_df <- climate_data %>% dplyr::select(-matches(removal_vars_start))
+train_df <- train_df %>% dplyr::select(-matches(removal_vars_end))
+
+train_df <- train_df %>% 
+  dplyr::select(-Q28_tech, -Q28_social, -Q12abc, -Q12defghi)
+train_df <- train_df %>% dplyr::select(-Q28_vars)
+train_df <- train_df %>% dplyr::select(-Q1_vars)
+
+
+
+# remove the original Q7 vars because they were too messy - use tallies instead
+
+# remove other Q5 variables aside from 5e
+## probably want to change this to Q16 removals
+
+# forest_outcome_var <- "Q16d"
+
+# Q16_removals <- Q16_vars[Q16_vars != forest_outcome_var]
+# Q16_removals <- c("Q5a","Q5b", "Q5c", "Q5d", "Q5e", "Q5f", "Q5g", "Q5i", "Q5j")
+
+train_df <- train_df %>% dplyr::select(-Q7_vars)
+# train_df <- train_df %>% dplyr::select(-Q5_vars) # drop Q5 vars for Q16 training
+# train_df <- train_df %>% dplyr::select(-Q16_removals)
+#train_df <- train_df %>% dplyr::select(-Q16_energy)
+
+factor_vars <- c("Q29", "Q32", "Q37")
+
+train_df <- train_df %>% 
+  mutate_at(factor_vars, as.factor)
+  
+  # mutate(Q29 = as.factor(Q29),
+  #        Q37 = as.factor(Q37))
+
+train_df %>% count(Q18c)
+
+```
+
+
+```{r}
+extra_removal_vars <- c(".id", ".imp", "student_id", "full_hdb_cluster", "full_agg_cluster",
+                        "cluster_time_rank_hdb", "cluster_avg_hdb", "cluster_avg_agg",
+                        "dim1", "dim2")
+
+train_df <- train_df %>% 
+  select(-one_of(extra_removal_vars))
+```
+
+
+
+
+### Option 2: Ordinal Forest instead of Regression Random Forest
+
+
+```{r}
+train_df
+```
+
+
+```{r}
+train_df <- train_df %>% 
+  mutate(Q18c = as.ordered(Q18c))
+```
+
+
+```{r}
+
+
+train_df %>% drop_na(Q32, Q33, Q37)
+
+ord_rf_df <- train_df %>% 
+  select(-one_of("Q30", "Q31", "Q34", "Q35", "Q36a", "Q36b", "Q38", Q39_vars, "Q40")) %>% 
+  drop_na(Q32, Q33, Q37)
+```
+
+
+```{r}
+
+set.seed(42)
+
+ord_rf_df %>% select(Q18c)
+
+ord_rf_df <- as.data.frame(ord_rf_df)
+# default mtry
+rf_mod_ord <- ordfor(depvar = "Q18c", 
+                     data = ord_rf_df, 
+                     perffunction = "proportional")
+
+
+```
+
+
+
+
+#### Identify top 30 most important variables for ordinal prediction
+
+```{r}
+# sort(rf_mod_ord$varimp, decreasing=TRUE)
+
+var_imp <- rf_mod_ord$varimp
+# var_imp
+# names(var_imp)
+
+var_imp_df <- tibble(variable = names(var_imp),
+                     var_importance = var_imp)
+
+```
+
+For ordinal forest variable importance measures
+
+```{r}
+
+p <- var_imp_df %>% 
+  top_n(30, var_importance) %>% 
+  ggplot(aes(x = reorder(variable, -var_importance), y = var_importance)) +
+  geom_bar(stat = "identity", fill = "#53cfff", width = 0.65) +
+  coord_flip() + 
+  theme_light(base_size = 20) +
+  theme(axis.title.x = element_text(size = 10, color = "black"),
+        axis.title.y = element_blank(),
+        axis.text.x  = element_text(size = 10, color = "black"),
+        axis.text.y  = element_text(size = 10, color = "black"),
+        plot.title = element_text(size = 10, hjust = 0.5)) +
+  ggtitle("Ordinal Forest Variable Importance for Responsibility to Deal with Environmental Problems")
+
+p
+
+```
+
+
+
+
+
+
+
+
+
+

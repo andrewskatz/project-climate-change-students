@@ -1,0 +1,1529 @@
+---
+title: "Q27 Imputation and UMAP"
+author: "Katz et al."
+date: "5/16/2021"
+output: html_document
+---
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+
+
+```{r}
+
+library(RColorBrewer)
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(knitr)
+library(purrr)
+library(tidytext)
+library(ggmosaic)
+library(brms)
+library(lme4)
+library(parallel)
+library(ggridges)
+library(tidybayes)
+library(ggridges)
+
+library(ggmcmc)
+library(maps)
+library(ggmap)
+
+library(cluster)
+library(factoextra)
+library(mice)
+
+library(uwot)
+
+library(rstatix)
+
+library(sjPlot)
+
+set.seed(123)
+
+```
+
+
+
+
+```{r}
+
+#climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/updated_climate_df_2.csv")
+data_folder <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/"
+data_file <- "updated_climate_df_2.csv"
+
+climate_df <- read_csv(paste0(data_folder, data_file))
+
+
+## Drop duplicates
+climate_df <- climate_df %>% distinct(Litho, .keep_all = TRUE)
+# check for possible duplicates
+#climate_df %>% group_by(Litho) %>% filter(n() > 1) %>% arrange(Litho) %>% ungroup()
+
+
+## Add in major as string instead of number
+
+climate_df <- climate_df %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"))
+
+
+
+climate_df <- climate_df %>% 
+  rowid_to_column(var = "student_id")
+
+```
+
+
+```{r}
+# create variable vectors
+
+#test_df <- climate_df %>% select(Q7_vars, Q7tally_vars, Q7wt_sum_vars, Q7other_vars, Q7disc_vars,Q7eng_ele_vars, Q7non_eng_vars)
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q2_vars <- paste0("Q2", letters[1:7])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+Q7wt_sum_vars <- paste0("Q7", letters[1:22], "_wt_sum")
+Q7other_vars <- paste0("Q7", letters[1:22], "_other")
+Q7disc_vars <- paste0("Q7", letters[1:22], "_disc_spec")
+Q7eng_ele_vars <- paste0("Q7", letters[1:22], "_eng_ele")
+Q7non_eng_vars <- paste0("Q7", letters[1:22], "_non_eng_ele")
+
+
+Q16_vars <- paste0("Q16", letters[1:13])
+
+
+
+Q27_vars <- paste0("Q27", letters[1:9])
+last_letter <- 9
+Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+Q28_vars <- paste0("Q28", letters[1:12])
+
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+
+
+```
+
+
+
+
+Looking at counts by demographic variables, especially NAs
+
+```{r}
+# [OLD] Looking at counts by 
+# climate_df %>% count(Q29, sort = TRUE) # 735 NAs
+# 
+# climate_df %>% count(Q32) # 597 NAs
+# 
+# climate_df %>% filter(!is.na(Q29)) %>% count(Q32) #156 NAs
+# 
+# 
+# climate_df %>% count(Q33)
+# 
+# climate_df %>% filter(!is.na(Q29)) %>% count(Q33, sort = TRUE)
+# 
+# climate_df %>% count(Q37)
+
+
+```
+
+
+
+Drop NAs for specific questions and filter out disciplines with fewer than 30 (the cutoff) students in sample
+
+```{r}
+
+
+
+
+# climate_df <- climate_df %>% 
+#   drop_na(Q29, Q18k, Q20a, Q20b, Q20d, Q18k, Q22) %>%
+#   drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j) %>%
+#   drop_na(Q24a, Q24b, Q24c, Q24d, Q24e, Q24f, Q24g, Q24h, Q24i, Q24j, Q24k) %>%
+#   drop_na(Q25a, Q25b, Q25c) %>%
+#   drop_na(Q26a, Q26b, Q26c, Q26d, Q26e, Q26f, Q26g, Q26h) %>%
+#   drop_na(Q27_vars) %>%
+#   drop_na(Q28_vars)
+
+# climate_df <- climate_df %>% 
+#   drop_na(Q29, Q27_vars, Q32, Q37, Q40)
+
+# climate_df %>% count(Q29, sort = TRUE)
+
+#cutoff <- 30
+
+
+# climate_df <- climate_df %>% 
+#   add_count(Q29, name = "major_count") %>% 
+#   filter(major_count > 30)
+
+
+#climate_df %>% count(Q29, sort = TRUE)
+
+#count_tbl <- climate_df %>% count(Q29, major, sort = TRUE)
+
+```
+
+
+Major counts and percentages
+```{r}
+# [OLD]
+# count_tbl %>% 
+#   mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+#   mutate(cumulat_pct = round(cumsum(n)/sum(n)*100, 2)) %>% 
+#   kable()
+```
+
+Gender counts overall
+```{r}
+
+# [OLD]
+# climate_df %>% count(Q37) %>% 
+#   mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+#   kable()
+```
+
+
+
+fill in 0s for NAs for specific items (Q1, Q3, Q5)
+```{r}
+
+
+### Fill in NAs for specific items ---- 
+
+
+
+
+#climate_df[, Q1_vars]
+climate_df <- climate_df %>% mutate_at(all_of(Q1_vars), ~replace_na(., 0))
+#climate_df[, Q1_vars]
+
+#climate_df[, Q3_vars]
+climate_df <- climate_df %>% mutate_at(all_of(Q3_vars), ~ replace_na(.,0))
+#climate_df[, Q3_vars]
+
+#climate_df[,Q5_vars]
+climate_df <- climate_df %>% mutate_at(all_of(Q5_vars), ~ replace_na(.,0))
+#climate_df[, Q5_vars]
+
+#climate_df[, Q7_vars]
+climate_df <- climate_df %>% mutate_at(all_of(Q7_vars), ~ replace_na(., 0))
+#climate_df[,Q7_vars]
+
+#climate_df[, Q35_vars]
+climate_df <- climate_df %>% mutate_at(all_of(Q35_vars), ~ replace_na(., 0))
+#climate_df[,Q35_vars]
+
+#climate_df[, Q39_vars]
+climate_df <- climate_df %>% mutate_at(all_of(Q39_vars), ~ replace_na(., 0))
+#climate_df[,Q39_vars]
+
+
+#climate_df[, Q28_vars]
+#climate_df <- climate_df %>% drop_na(Q28_vars)
+#climate_df[, Q28_vars]
+#climate_df <- climate_df %>% drop_na(Q16_vars)
+
+
+
+
+
+```
+
+
+Inspect missing data patterns
+
+```{r}
+# include Q7 individual indicator columns
+# climate_df_sel <- climate_df %>% select(Q1a:Q39i, Q7a_eng_ele:Q7v_other) %>% 
+#   select(-c(Q33_writein, Q37_writein, Q38_writein))
+
+# exclude Q7items
+climate_df_sel <- climate_df %>% select(student_id:Q40)
+
+
+
+#md.pattern(climate_df_sel)
+
+
+```
+
+Impute missing values
+
+```{r imp-setup}
+
+# get general imputation model without actually imputing (by setting maxit = 0)
+climate_imp <- mice(climate_df_sel, m = 1, maxit = 0)
+
+# if wanting to look at which methods are being used for imputation
+#climate_imp_2$method
+
+
+## When setting variables not to impute, be careful to also remove them
+# as predictors from the predictor matrix
+
+# identify variables not to be imputed
+do_not_impute <- c("student_id", "Litho", "School", 
+                   "Q29", "Q30", "Q31", "Q32", "Q33", "Q34", "Q35a", "Q35b",
+                   "Q35c", "Q35d", "Q35e", "Q35f", "Q35g", "Q35h", "Q35i",
+                   "Q36a", "Q36b", "Q37", "Q38", "Q39a",
+                   "Q33_writein", "Q37_writein", "Q38_writein",
+                   "Q39b", "Q39c", "Q39d", "Q39e", "Q39f", "Q39g", "Q39h","Q39i",
+                   "Q39_writein", "Q40", Q7_vars)
+                   
+                   
+#, Q7tally_vars, Q7wt_sum_vars, Q7other_vars, Q7disc_vars, Q7eng_ele_vars, Q7non_eng_vars)
+
+
+do_not_use_to_predict <- c(do_not_impute, "Q6a", "Q6d", "Q6e", "Q6i", "Q6j", "Q8j", "Q8n")
+
+
+
+# first attempt to exclude variables from imputation
+# get predictor matrix to identify demographic variables not to be imputed
+pred <- climate_imp$predictorMatrix
+
+
+# tried by specifying predictor matrix
+pred[,do_not_use_to_predict] <- 0 # this did not seem to work
+
+# second attempt: try specifying method = ""
+meth <- climate_imp$method
+meth[do_not_impute] <- ""
+
+# sanity check
+#meth # check passed
+
+
+```
+
+
+```{r imp-run}
+# take a subsection of the original data to figure out how to avoid imputing some variables
+#short_df <- climate_df_sel %>% head(100)
+
+
+m_dataset <- 40
+
+
+# estimate imputation model
+# climate_imp <- mice(climate_df_sel, m = m_dataset, maxit = 10, predictorMatrix = pred, method = meth)
+
+
+# climate_imp <- parlmice(climate_df_sel, m = m_dataset,
+#                         maxit = 10, predictorMatrix = pred, method = meth,
+#                         cluster.seed = 123, n.core = parallel::detectCores())
+
+
+```
+
+```{r}
+
+
+# saveRDS(climate_imp, file = "climate_imp_40_2021-05-01.rds")
+
+#use the readRDS version - seems to work
+climate_imp_read <- readRDS(file = "climate_imp_40_2021-05-01.rds")
+
+# miceadds::write.mice.imputation(climate_imp, name = "climate_imp_40_2021_05_01")
+```
+
+
+```{r imp-long}
+#climate_imp$loggedEvents
+
+
+
+
+# climate_imp_long <- complete(climate_imp, action = "long", include = TRUE)
+
+```
+
+
+```{r imp-add-q7}
+
+# make df of Q7 items and their recodings to join to the imputed datasets 
+# the original way of carrying these variables through the imputation seemed to 
+# 
+
+# climate_q7_df <- climate_df %>%
+#   select(student_id, Q7tally_vars, Q7wt_sum_vars, Q7other_vars, Q7disc_vars, Q7eng_ele_vars, Q7non_eng_vars)
+# # 
+# climate_imp_long <- climate_imp_long %>% inner_join(climate_q7_df, by = "student_id")
+
+```
+
+
+
+```{r imp-write}
+
+# write the imputed dataset to csv
+# climate_imp_long %>% write_csv(paste0("climate_imputed_", m_dataset,
+#                                       "_", Sys.Date(), ".csv"))
+
+# 2021-04-17 contains 5 imputed datasets with 10 iterations each
+# 2021-04-18 contains 5 imputed datasets with 10 iterations each
+# 2021-04-21 contains 20 imputed datasets with 10 iterations each
+# 2021-04-22 contains 20 imputed datasets with 10 iterations each and q7 extra vars
+# 2021-05-01 contains 40 imputed datasets with 10 iterations each and q7 extra vars
+```
+
+
+
+
+
+```{r imp-read}
+# read in most recent version of imputed dataset
+data_folder <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/analysis/q27 clustering/"
+data_file <- "climate_imputed_40_2021-05-01.csv"
+
+climate_imp_long <- read_csv(paste0(data_folder, data_file))
+
+
+
+
+nested_imp <- climate_imp_long %>% group_by(.imp) %>% nest() %>% ungroup()
+
+
+
+###
+# Try dropping .imp == 0 (the original dataset) for all of the analysis and then adding it back in at the end
+
+nested_imp <- nested_imp %>% 
+  filter(.imp != 0)
+
+nested_imp$data[[3]]
+
+```
+
+Explore imputed datasets
+```{r}
+# just check to see what the distributions look like
+climate_imp_long %>% 
+  ggplot(aes(x = Q27a)) +
+  geom_histogram() +
+  facet_grid(.imp ~ .)
+
+
+```
+
+
+```{r}
+# [OLD]
+# climate_df <- climate_df %>% drop_na(all_of(Q28_vars))
+# climate_df <- climate_df %>% drop_na(all_of(Q27_vars)) #should have 3313 observations
+
+nested_imp <- nested_imp %>% 
+  mutate(data = purrr::map(.x = data, 
+                           ~mutate(.x, 
+                                   Q28_social = Q28c + Q28d + Q28e+Q28j+ Q28l,
+                                   Q28_tech = Q28a+Q28f+Q28g+Q28h+Q28i+ Q28k,
+                                   Q28_social_norm = Q28_social / 5,
+                                   Q28_tech_norm = Q28_tech / 6)))
+
+
+# [OLD]
+# climate_df <- climate_df %>% 
+#   mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+#          Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+#          Q28_social_norm = Q28_social / 5,
+#          Q28_tech_norm = Q28_tech / 6)
+
+
+```
+
+
+```{r}
+# [OLD]
+# Drop majors with low counts (below 30 students in sample)
+
+# climate_df %>% count(Q29, sort = TRUE)
+# climate_df %>% count(major, sort = TRUE)
+# cutoff <- 30
+# 
+# climate_df <- climate_df %>% add_count(Q29, name = "major_count") %>% filter(major_count > cutoff)
+
+```
+
+
+
+
+```{r}
+# UMAP functions with uwot
+
+uwot_umap <- function(df, umap_min_dist, umap_spread, umap_n_comp, umap_n_nei, metric) {
+  df %>% 
+    select(all_of(Q27_vars)) %>%
+    uwot::umap(min_dist = umap_min_dist, 
+               spread = umap_spread, 
+               n_components = umap_n_comp,
+               n_neighbors = umap_n_nei,
+               metric = metric) %>% 
+    as_data_frame()
+}
+
+uwot_umap_ab <- uwot_umap <- function(df, a, b) {
+  df %>% 
+    select(-student_id) %>%
+    uwot::umap(a = a, b = b) %>% 
+    as_data_frame()
+}
+
+
+uwot_plot <- function(df, min_dist = "", spread = "", n_nei = "", metric = ""){
+  p <- df %>% 
+    ggplot(aes(x = V1, y = V2)) +
+    geom_point() +
+    labs(title = paste0("min_dist=", min_dist, 
+                        ", spread=", spread, ", n_nei=", n_nei, ", metric=", metric)) +
+    theme(strip.text.x = element_text(size = 7)) +
+    theme_light()
+  
+  return(p)
+}
+
+uwot_plot_ab <- function(df, a = "", b = ""){
+  p <- df %>% 
+    ggplot(aes(x = V1, y = V2)) +
+    geom_point() +
+    labs(title = paste0("a = ", a, 
+                        ", b = ", b)) +
+    theme(strip.text.x = element_text(size = 7)) +
+    theme_light()
+  
+  return(p)
+}
+
+```
+
+
+
+
+# Clustering Process (two-step process using UMAP + HDBSCAN)
+
+```{r}
+
+
+nested_imp <- nested_imp %>%
+  mutate(data = purrr::map(data,
+                    ~ mutate(.x, 
+                             Q27a_tri_num = case_when(Q27a == 1 | Q27a == 2 ~ 0,
+                                  Q27a == 3 | Q27a == 4 ~1, 
+                                  Q27a == 5 ~ 2),
+                             Q27b_tri_num = case_when(Q27b == 1 | Q27b == 2 ~ 0,
+                                  Q27b == 3 | Q27b == 4 ~1,
+                                  Q27b == 5 ~ 2),
+                             Q27c_tri_num = case_when(Q27c == 1 | Q27c == 2 ~ 0,
+                                  Q27c == 3 | Q27c == 4 ~ 1,
+                                  Q27c == 5 ~ 2),
+                             Q27d_tri_num = case_when(Q27d == 1 | Q27d == 2 ~ 0,
+                                  Q27d == 3 | Q27d == 4 ~ 1,
+                                  Q27d == 5 ~ 2),
+                             Q27e_tri_num = case_when(Q27e == 1 | Q27e == 2 ~ 0,
+                                  Q27e == 3 | Q27e == 4 ~ 1,
+                                  Q27e == 5 ~ 2),
+                             Q27f_tri_num = case_when(Q27f == 1 | Q27f == 2 ~ 0,
+                                  Q27f == 3 | Q27f == 4 ~ 1,
+                                  Q27f == 5 ~ 2),
+                             Q27g_tri_num = case_when(Q27g == 1 | Q27g == 2 ~ 0,
+                                  Q27g == 3 | Q27g == 4 ~ 1,
+                                  Q27g == 5 ~ 2),
+                             Q27h_tri_num = case_when(Q27h == 1 | Q27h == 2 ~ 0,
+                                  Q27h == 3 | Q27h == 4 ~ 1,
+                                  Q27h == 5 ~ 2),
+                             Q27i_tri_num = case_when(Q27i == 1 | Q27i == 2 ~ 0,
+                                  Q27i == 3 | Q27i == 4 ~ 1,
+                                  Q27i == 5 ~ 2))))
+
+
+
+
+
+# [OLD]
+# climate_27_tri_df <- climate_df %>% 
+#   select(student_id, Q5a, Q5b, Q5c, Q5d, Q5e, Q5f, Q5g, Q5h, Q5i, Q5j, Q27_tri_num_vars)
+
+nested_imp <- nested_imp %>% 
+  mutate(climate_27_tri_df = purrr::map(data,
+                    ~ select(.x, c(.id, all_of(Q27_tri_num_vars)))))
+
+nested_imp$climate_27_tri_df[[1]]
+```
+
+
+```{r}
+
+## attempt to use UMAP on original Q27 items (not the recoded ternary versions)
+
+nested_imp <- nested_imp %>% 
+  mutate(climate_27_df = purrr::map(data, 
+                                    ~select(.x, c(.id, all_of(Q27_vars)))))
+  
+nested_imp$climate_27_df[[1]]
+```
+
+
+
+```{r}
+
+#dim red and clustering with uwot::umap instead of umap::umap
+
+# cl_df <- nested_imp$data[[4]]
+# 
+# cl_df <- cl_df %>% 
+#   select(student_id, Q27_tri_num_vars)
+
+```
+
+
+
+
+
+
+
+First perform dimension reduction using UMAP
+```{r}
+
+
+#Q27_tri_num_vars <- c("Q27a_tri_num", "Q27b_tri_num", "Q27c_tri_num")
+
+# create custom settings for umap
+custom.settings = umap.defaults
+#custom.settings$n_neighbors = 30
+custom.settings$n_components = 2
+custom.settings$n_neighbors = 30 # next time, try dropping this from 55 to 30
+custom.settings$min_dist = 0.00001 # experimental, dropping down from 0.1 to 0.0
+custom.settings$metric = 'euclidean'
+
+## 30 neighbors seems to work well
+
+nested_imp <- nested_imp %>% 
+  mutate(climate_27_tri_umap = purrr::map(.x = climate_27_tri_df, 
+                                          ~ select(.x, all_of(Q27_tri_num_vars)) %>%
+                                                     umap::umap(random_state = 123, 
+                                                          config = custom.settings)))
+
+
+# testing umap on one of the five imputed datasets
+#nested_imp$climate_27_tri_df[[1]]
+
+
+# nested_imp$climate_27_tri_df[[3]]
+
+
+nested_imp <- nested_imp %>% 
+  mutate(plot_df = purrr::map(.x = climate_27_tri_umap,
+                       ~ as_tibble(.x$layout)))
+
+             
+
+nested_imp <- nested_imp %>% 
+  mutate(plot_df = purrr::map(.x = plot_df,
+                              ~ rename(.x, 
+                                       dim1 = V1,
+                                       dim2 = V2)))
+
+nested_imp <- nested_imp %>% 
+  mutate(data = purrr::map2(.x = data, .y = plot_df,
+                            ~ bind_cols(.x, .y)))
+
+#nested_imp$climate_27_tri_umap
+nested_imp$data[[2]]
+
+# check one example of the five imputed datasets to see what the UMAP projection looks like
+
+
+ggplot(data = nested_imp$plot_df[[1]], aes(x = dim1, y = dim2)) +
+  geom_point()
+```
+
+
+
+
+
+```{r}
+# try clustering with agglomerative clustering
+
+# need to use plot_df because that has the two-dimension reduction from UMAP
+
+agg_df <- nested_imp$plot_df[[1]]
+  
+  
+```
+
+
+
+```{r}
+
+hc2 <- agnes(agg_df, method = "ward")
+
+```
+
+
+```{r}
+pltree(hc2, cex = 0.6, hang = -1)
+```
+
+```{r}
+
+sub_grp <- cutree(hc2, k = 8)
+table(sub_grp)
+
+agg_df$cl <- sub_grp
+```
+
+```{r}
+cl_tri_df <- nested_imp$climate_27_tri_df[[1]]
+
+```
+
+```{r}
+cl_tri_df$cluster <- agg_df$cl
+
+cl_tri_df
+```
+
+```{r}
+fviz_nbclust(agg_df, FUNcluster = hcut, method = "wss")
+```
+
+
+
+
+# Next, perform clustering using either HDBSCAN or agglomerative clustering
+
+
+
+# Option 1: using HDBSCAN
+
+```{r}
+# perform clustering using HDBSCAN on the dim-reduced data
+# clustering with min 60 pts leaves 131 unclustered
+#clustering with 40 creates 13 groups and 29 unclustered
+### Best combination: n_components=2, n_neighbords=80, min_dist=0.001, minPts=90 (or 50)
+### also good: n_comp=2, n_neigh=20 or 30, min_dist=0.0001, minPts=50
+nested_imp <- nested_imp %>% 
+  mutate(hdbscan_umap_cl = purrr::map(.x = plot_df, 
+                               ~ hdbscan(.x, minPts = 150))) 
+# groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+
+
+
+
+
+# check one example of the clustering
+nested_imp$hdbscan_umap_cl[[4]] # check passed
+
+
+# [OLD] add the cluster labels to the plotting dataframe
+#plot_df$cluster <- hdbscan_umap_cl$cluster
+
+nested_imp <- nested_imp %>% 
+  mutate(plot_df = purrr::map2(.x = plot_df, .y = hdbscan_umap_cl,
+                              ~ mutate(.x, cluster = .y$cluster)))
+
+# sensibility check
+#nested_imp$plot_df[[1]]$cluster #check passed
+
+# plot the reduction with the clusters
+nested_imp$plot_df[[1]] %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of simplified Q27 using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+# add the cluster labels back to the original data set
+nested_imp <- nested_imp %>% 
+  mutate(climate_27_tri_df = purrr::map2(.x = climate_27_tri_df, .y = hdbscan_umap_cl,
+                              ~ mutate(.x, cluster = .y$cluster)))
+
+
+# sanity check of clusters being stored for plotting -- check passed
+# nested_imp$climate_27_tri_df[[2]] %>% 
+#   ggplot(aes(x = cluster)) +
+#   geom_histogram() +
+#   labs(x = "Cluster",
+#        y = "Count",
+#        title = "Histogram of clusters for Question 27 ternary split") +
+#   theme_bw() +
+#   theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+# create cluster distribution plots for each of the imputed datasets
+nested_imp <- nested_imp %>% 
+  mutate(cluster_hist = purrr::map(.x = climate_27_tri_df,
+                                   ~ ggplot(.x, aes(x = cluster)) +
+                                     geom_histogram() +
+                                     labs(x = "Cluster",
+                                          y = "Count",
+                                          title = "Histogram of clusters for Q27 ternary split") +
+                                     theme_light() +
+                                     theme(plot.title = element_text(hjust=0.5, size = 8))))
+
+
+
+```
+
+
+## For using agglomerative clustering instead of HDBSCAN (choose one or the other, not both)
+
+```{r}
+# add option for agglomerative clustering instead of hdbscan
+nested_imp <- nested_imp %>% 
+  mutate(agg_umap_cl = purrr::map(.x = plot_df, 
+                               ~ cluster::agnes(.x, method = "ward")))
+```
+
+
+```{r}
+# write_rds(nested_imp, file = paste0("nested_imp_umap_cl_", Sys.Date(), ".rds"))
+
+# wrote to rds to save umap projects and agglomerative clusters since the clustering took so long
+```
+
+```{r}
+# reading in the RDS saved in the prior block -- need to save agg and hdb clusters in separate columns
+nested_imp <- read_rds("nested_imp_umap_cl_2021-05-04.rds")
+```
+
+
+```{r}
+
+```
+
+
+
+
+
+```{r}
+
+# hard coding number of clusters
+k <- 8
+
+nested_imp <- nested_imp %>% 
+  mutate(agg_clusters = purrr::map(.x = agg_umap_cl, 
+                              ~cutree(.x, k = k)))
+
+```
+
+
+
+
+
+## Original clustering implementation (implemented in each of the imputation scripts)
+
+
+
+```{r}
+# perform clustering using HDBSCAN on the dim-reduced data
+# clustering with min 60 pts leaves 131 unclustered
+#clustering with 40 creates 13 groups and 29 unclustered
+### Best combination: n_components=2, n_neighbords=80, min_dist=0.001, minPts=90 (or 50)
+### also good: n_comp=2, n_neigh=20 or 30, min_dist=0.0001, minPts=50
+hdbscan_umap_cl <- hdbscan(plot_df, minPts = 120) 
+# groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+plot_df$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+plot_df %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of simplified Q27 using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+# add the cluster labels back to the original data set
+climate_27_df$cluster <- hdbscan_umap_cl$cluster
+
+climate_27_tri_df %>% 
+  ggplot(aes(x = cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for Question 27 ternary split") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+```
+
+
+
+
+Join the dataframes back together again
+
+```{r}
+# Add the cluster assignments back to the original climate_df dataframe
+climate_df <- climate_27_tri_df %>% select(student_id, cluster) %>% inner_join(climate_df, by = "student_id")
+```
+
+
+```{r}
+#climate_df <- climate_df %>% rename(cluster = cluster.y)
+
+climate_df %>% count(cluster, sort = TRUE)
+
+
+```
+
+
+
+
+## Views of when climate change will affect different groups broken down by cluster assignments
+
+
+## Looking for patterns in the clusters
+
+
+```{r}
+q27_item_list <- list(
+  'Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment"
+)
+
+q27_labs <- c("Me personally", 
+              "My family",
+              "People in my comm.",
+              "People in US",
+              "Other indust. countr.",
+              "Developing countries",
+              "Plant + animal species",
+              "World's poor",
+              "Natural environment")
+
+names(q27_labs) <- c("Q27a_tri_num",
+                     "Q27b_tri_num",
+                     "Q27c_tri_num",
+                     "Q27d_tri_num",
+                     "Q27e_tri_num",
+                     "Q27f_tri_num",
+                     "Q27g_tri_num",
+                     "Q27h_tri_num",
+                     "Q27i_tri_num")
+```
+
+
+
+# Understanding cluster compositions more
+
+
+#### First create a dataframe with the rankings for each cluster, where a lower ranking means students in the cluster think climate change will affect more categories sooner. 
+
+
+
+```{r}
+
+## create dataframe with rankings for cluster by how soon each cluster believes climate change will affect groups
+cluster_ranking_df <- climate_df %>% 
+  mutate(Q27_tri_total = Q27a_tri_num + Q27b_tri_num + Q27c_tri_num + Q27d_tri_num + Q27e_tri_num +
+           Q27f_tri_num + Q27g_tri_num + Q27h_tri_num + Q27i_tri_num) %>% 
+  group_by(cluster) %>% 
+  summarize(cluster_avg = mean(Q27_tri_total)) %>% 
+  arrange(cluster_avg) %>% 
+  rowid_to_column(var = "cluster_time_rank")
+
+cluster_ranking_df
+
+climate_df <- climate_df %>% 
+  inner_join(cluster_ranking_df, by = "cluster")
+
+#climate_27_tri_df %>% inner_join(cluster_ranking_df, by = "cluster")
+
+
+```
+
+
+Set clustering colors for all plots
+```{r}
+#Old method of randomly assigning colors
+# cluster_num <- length(unique(climate_df$cluster))
+# 
+# cluster_colors <- colorRampPalette(brewer.pal(9, "Set1"))(cluster_num)
+
+# new method of assigning cluster colors along a gradient
+cluster_num <- length(unique(climate_df$cluster_time_rank))
+
+# cluster colors with red, yellow, green
+#cluster_colors <- colorRampPalette(c("#ec3434", "#f7c035", "#007030"))(cluster_num)
+
+# cluster colors with grayscale
+cluster_colors <- colorRampPalette(c("#000000", "#a8adb5", "#dedede"))(cluster_num)
+
+
+```
+
+
+
+### Look at distribution of cluster for how when they think each community may be affected by global warming
+
+```{r}
+climate_df %>%
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>% 
+  ggplot(aes(x = as_factor(response))) +
+  geom_bar(aes(fill = as_factor(cluster_time_rank))) +
+  facet_wrap(.~ survey_item, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "Converted Ternary Response (0 = Now, 1 = Later, 2 = Never)",
+       y = "Count",
+       title = "Histogram of when will global warming affect different groups?",
+       fill = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+Same information but faceted with clusters
+
+** This is a good plot for seeing that a cluster's beliefs about effects of global warming on different populations at different times vary in a clear pattern
+```{r}
+## for the ternary options
+
+
+climate_df %>%
+  #filter(cluster != 0) %>% 
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = survey_item)) +
+  geom_bar(aes(fill = as_factor(response))) +
+  facet_wrap(.~ cluster_time_rank, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "When will global warming affect this population?",
+       y = "Count",
+       title = "Cluster patterns of when will global warming affect various populations",
+       fill = "Response") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = c("#000000", "#a8adb5", "#dedede"), 
+                    name = "Response", 
+                    labels = c("0" = "0-10 yrs", "1" = "25-50y yrs", "2" = "Never")) +
+  scale_x_discrete(labels = c('Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment")) + 
+  coord_flip()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Investigating alternatives to the ternary UMAP implementation
+
+```{r}
+## Create the test dataset (just pick one of the 40 imputed datasets)
+
+
+climate_df <- nested_imp$data[[3]]
+climate_27_df <- climate_df %>% select(student_id, all_of(Q27_vars))
+climate_27_tri_df <- climate_df %>% select(student_id, all_of(Q27_tri_num_vars))
+
+```
+
+
+# option 1: using umap implementation
+
+
+## grid search on number of neigbors
+
+
+```{r}
+
+n_nei_seq <- seq(from = 15, to = 125, by = 5)
+
+for (i in 1:length(n_nei_seq)){
+  custom.settings = umap.defaults
+  #custom.settings$n_neighbors = 30
+  custom.settings$n_components = 2
+  custom.settings$n_neighbors = n_nei_seq[i] # next time, try dropping this from 55 to 30
+  custom.settings$min_dist = 0.00001 # experimental, dropping down from 0.1 to 0.0
+  custom.settings$metric = 'euclidean'
+  
+  
+  test_umap <- climate_27_tri_df %>% 
+    select(-student_id) %>% 
+    umap::umap(random_state = 357,
+               config = custom.settings)
+  
+  
+  plot_df <- as_tibble(test_umap$layout)
+  
+  plot_df <- plot_df %>% 
+  rename(dim1 = V1,
+         dim2 = V2)
+  
+  p <- ggplot(data = plot_df, aes(x = dim1, y = dim2)) +
+    geom_point() +
+    labs(title = paste0("n_nei = ", n_nei_seq[i]))
+  
+  print(p)
+
+}
+
+```
+
+
+```{r}
+# create custom settings for umap
+custom.settings = umap.defaults
+#custom.settings$n_neighbors = 30
+custom.settings$n_components = 2
+custom.settings$n_neighbors = 45 # next time, try dropping this from 55 to 30
+custom.settings$min_dist = 0.00001 # experimental, dropping down from 0.1 to 0.0
+custom.settings$metric = 'euclidean'
+
+n_nei_seq <- seq(from = 15, to = 100, by = 5)
+
+test_umap <- climate_27_tri_df %>% 
+  select(-student_id) %>% 
+  umap::umap(random_state = 357,
+             config = custom.settings)
+
+
+plot_df <- as_tibble(test_umap$layout)
+```
+
+
+# option 2: using uwot instead of umap implementation
+
+## try grid search for a and b parameters
+
+```{r}
+
+a_rep <- seq(from = 0.1, to = 3, by = 0.2)
+b_rep <- seq(from = 0.05, to = 1.2, by = 0.1)
+
+for (i in 1:length(b_rep)){
+  for (j in 1:length(a_rep)){
+  b <- b_rep[i]
+  a <- a_rep[j]
+  uwot_res <- uwot_umap_ab(climate_27_tri_df, a = a, b = b)
+  
+  print(uwot_plot_ab(uwot_res, a = a, b = b))
+  }
+}
+
+
+```
+
+
+## final implementation
+```{r}
+a <- 3
+b <- 1.15
+
+uwot_res <- uwot_umap_ab(climate_27_tri_df, a = a, b = b)
+uwot_plot_ab(uwot_res, a = a, b = b)
+
+
+plot_df <- uwot_res
+```
+
+
+
+
+
+```{r}
+plot_df <- plot_df %>% 
+  rename(dim1 = V1,
+         dim2 = V2)
+ggplot(data = plot_df, aes(x = dim1, y = dim2)) +
+  geom_point()
+
+
+
+```
+
+
+
+
+
+```{r}
+# perform clustering using HDBSCAN on the dim-reduced data
+# clustering with min 60 pts leaves 131 unclustered
+#clustering with 40 creates 13 groups and 29 unclustered
+### Best combination: n_components=2, n_neighbords=80, min_dist=0.001, minPts=90 (or 50)
+### also good: n_comp=2, n_neigh=20 or 30, min_dist=0.0001, minPts=50
+hdbscan_umap_cl <- hdbscan(plot_df, minPts = 120) 
+# groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+plot_df$new_cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+plot_df %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(new_cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of simplified Q27 using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+# add the cluster labels back to the original data set
+climate_27_df$new_cluster <- hdbscan_umap_cl$cluster
+
+climate_27_df %>% 
+  ggplot(aes(x = new_cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for Question 27 ternary split") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+```
+
+
+
+```{r}
+# try clustering with agglomerative clustering
+
+# need to use plot_df because that has the two-dimension reduction from UMAP
+
+agg_df <- nested_imp$plot_df[[1]]
+  
+  
+```
+
+
+
+```{r}
+
+hc2 <- agnes(agg_df, method = "ward")
+
+```
+
+
+```{r}
+pltree(hc2, cex = 0.6, hang = -1)
+```
+
+```{r}
+
+sub_grp <- cutree(hc2, k = 8)
+table(sub_grp)
+
+agg_df$cl <- sub_grp
+```
+
+```{r}
+cl_tri_df <- nested_imp$climate_27_tri_df[[1]]
+
+```
+
+```{r}
+cl_tri_df$cluster <- agg_df$cl
+
+cl_tri_df
+```
+
+```{r}
+fviz_nbclust(agg_df, FUNcluster = hcut, method = "wss")
+```
+
+
+
+
+Join the dataframes back together again
+
+```{r}
+# Add the cluster assignments back to the original climate_df dataframe
+climate_df <- climate_27_df %>% select(student_id, new_cluster) %>% inner_join(climate_df, by = "student_id")
+```
+
+
+```{r}
+#climate_df <- climate_df %>% rename(cluster = cluster.y)
+
+climate_df %>% count(new_cluster, sort = TRUE)
+
+
+```
+
+
+
+
+## Views of when climate change will affect different groups broken down by cluster assignments
+
+
+## Looking for patterns in the clusters
+
+
+```{r}
+q27_item_list <- list(
+  'Q27a' = "Me personally",
+  "Q27b" = "My family",
+  "Q27c" = "People in my comm.",
+  "Q27d" = "People in US",
+  "Q27e" = "Other indust. countr.",
+  "Q27f" = "Developing countries",
+  "Q27g" = "Plant + animal species",
+  "Q27h" = "World's poor",
+  "Q27i" = "Natural environment"
+)
+
+q27_labs <- c("Me personally", 
+              "My family",
+              "People in my comm.",
+              "People in US",
+              "Other indust. countr.",
+              "Developing countries",
+              "Plant + animal species",
+              "World's poor",
+              "Natural environment")
+
+names(q27_labs) <- c("Q27a",
+                     "Q27b",
+                     "Q27c",
+                     "Q27d",
+                     "Q27e",
+                     "Q27f",
+                     "Q27g",
+                     "Q27h",
+                     "Q27i")
+```
+
+
+
+# Understanding cluster compositions more
+
+
+#### First create a dataframe with the rankings for each cluster, where a lower ranking means students in the cluster think climate change will affect more categories sooner. 
+
+
+
+```{r}
+
+## create dataframe with rankings for cluster by how soon each cluster believes climate change will affect groups
+cluster_ranking_df <- climate_df %>% 
+  mutate(Q27_total = Q27a + Q27b + Q27c + Q27d + Q27e +
+           Q27f + Q27g + Q27h + Q27i) %>% 
+  group_by(new_cluster) %>% 
+  summarize(cluster_avg = mean(Q27_total)) %>% 
+  arrange(cluster_avg) %>% 
+  rowid_to_column(var = "new_cluster_time_rank")
+
+cluster_ranking_df
+
+climate_df <- climate_df %>% 
+  inner_join(cluster_ranking_df, by = "new_cluster")
+
+#climate_27_tri_df %>% inner_join(cluster_ranking_df, by = "cluster")
+
+
+```
+
+
+Set clustering colors for all plots
+```{r}
+#Old method of randomly assigning colors
+# cluster_num <- length(unique(climate_df$cluster))
+# 
+# cluster_colors <- colorRampPalette(brewer.pal(9, "Set1"))(cluster_num)
+
+# new method of assigning cluster colors along a gradient
+cluster_num <- length(unique(climate_df$new_cluster_time_rank))
+
+# cluster colors with red, yellow, green
+#cluster_colors <- colorRampPalette(c("#ec3434", "#f7c035", "#007030"))(cluster_num)
+
+# cluster colors with grayscale
+cluster_colors <- colorRampPalette(c("#000000", "#a8adb5", "#dedede"))(cluster_num)
+
+
+```
+
+
+
+### Look at distribution of cluster for how when they think each community may be affected by global warming
+
+```{r}
+climate_df %>%
+  pivot_longer(cols = Q27a:Q27i, names_to = "survey_item", values_to = "response") %>% 
+  ggplot(aes(x = as_factor(response))) +
+  geom_bar(aes(fill = as_factor(new_cluster_time_rank))) +
+  facet_wrap(.~ survey_item, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "Converted Ternary Response (0 = Now, 1 = Later, 2 = Never)",
+       y = "Count",
+       title = "Histogram of when will global warming affect different groups?",
+       fill = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+Same information but faceted with clusters
+
+```{r}
+
+scale_num <- length(unique(climate_df$Q27a_tri_num))
+
+# cluster colors with red, yellow, green
+scale_colors <- colorRampPalette(c("#ec3434", "#f7c035", "#007030"))(scale_num)
+
+# cluster colors with grayscale
+# scale_colors <- colorRampPalette(c("#000000", "#a8adb5", "#dedede"))(scale_num)
+
+```
+
+
+** This is a good plot for seeing that a cluster's beliefs about effects of global warming on different populations at different times vary in a clear pattern
+```{r}
+## for the ternary options
+
+
+climate_df %>%
+  #filter(cluster != 0) %>% 
+  pivot_longer(cols = Q27a:Q27i, names_to = "survey_item", values_to = "response") %>%
+  mutate(cluster_time_rank = as_factor(new_cluster_time_rank)) %>% 
+  ggplot(aes(x = survey_item)) +
+  geom_bar(aes(fill = as_factor(response))) +
+  facet_wrap(.~ cluster_time_rank, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "When will global warming affect this population?",
+       y = "Count",
+       title = "Cluster patterns of when will global warming affect various populations",
+       fill = "Response") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = scale_colors, 
+                    name = "Response", 
+                    labels = c("1" = "Now", "2" = "10 yrs", "3" = "25 yrs",
+                               "4" = "50 yrs", "5" = "Never")) +
+  scale_x_discrete(labels = c('Q27a' = "Me personally",
+  "Q27b" = "My family",
+  "Q27c" = "People in my comm.",
+  "Q27d" = "People in US",
+  "Q27e" = "Other indust. countr.",
+  "Q27f" = "Developing countries",
+  "Q27g" = "Plant + animal species",
+  "Q27h" = "World's poor",
+  "Q27i" = "Natural environment")) + 
+  coord_flip()
+
+```
+
+
+
+
+```{r}
+
+```{r}
+## for the ternary options
+
+
+climate_df %>%
+  #filter(cluster != 0) %>% 
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>%
+  mutate(cluster_time_rank = as_factor(new_cluster_time_rank)) %>% 
+  ggplot(aes(x = survey_item)) +
+  geom_bar(aes(fill = as_factor(response))) +
+  facet_wrap(.~ cluster_time_rank, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "When will global warming affect this population?",
+       y = "Count",
+       title = "Cluster patterns of when will global warming affect various populations",
+       fill = "Response") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = c("#000000", "#a8adb5", "#dedede"), 
+                    name = "Response", 
+                    labels = c("0" = "0-10 yrs", "1" = "25-50y yrs", "2" = "Never")) +
+  scale_x_discrete(labels = c('Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment")) + 
+  coord_flip()
+
+```
+
+```
+

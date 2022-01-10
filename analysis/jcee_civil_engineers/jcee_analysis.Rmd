@@ -1,0 +1,925 @@
+---
+title: "jcee_analysis"
+author: "Shealy and Katz"
+date: "7/21/2020"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+mainfont: Times New Roman
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r loading, include=FALSE}
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(RColorBrewer)
+library(knitr)
+```
+
+
+
+```{r include=FALSE}
+setwd("G:/My Drive/AK Faculty/Research/Projects/project students and climate change")
+
+#climate_df <- read_csv("filtered_climate_survey_20200122.csv")
+#climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/updated_climate_df_2.csv")
+
+climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/climate_data.csv")
+
+## Drop duplicates
+climate_df <- climate_df %>% distinct(Litho, .keep_all = TRUE)
+
+
+## Add in major as string instead of number
+
+climate_df <- climate_df %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"))
+
+
+```
+
+
+Drop NAs for specific questions and filter out disciplines with fewer than 30 (the cutoff) students in sample
+
+```{r}
+climate_df <- climate_df %>% drop_na(Q29, Q20a, Q20b, Q20d, Q18k, Q22) %>% 
+  drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j) %>% 
+  drop_na(Q24a, Q24b, Q24c, Q24d, Q24e, Q24f, Q24g, Q24h, Q24i, Q24j, Q24k) %>% 
+  drop_na(Q25a, Q25b, Q25c) %>% 
+  drop_na(Q26a, Q26b, Q26c, Q26d, Q26e, Q26f, Q26g, Q26h) %>% 
+  drop_na(Q28a, Q28b, Q28c, Q28d, Q28e, Q28f, Q28g, Q28h, Q28i, Q28j, Q28k, Q28l) %>% 
+  drop_na(Q37)
+
+climate_df %>% count(Q29, sort = TRUE)
+cutoff <- 30
+
+climate_df <- climate_df %>% 
+  rowid_to_column(var = "student_id")
+
+climate_df <- climate_df %>% add_count(Q29, name = "major_count") %>% filter(major_count > cutoff)
+
+climate_df %>% count(Q29, sort = TRUE)
+
+count_tbl <- climate_df %>% count(Q29, major, sort = TRUE)
+
+```
+
+
+Major counts and percentages
+```{r}
+count_tbl %>% 
+  mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+  mutate(cumulat_pct = round(cumsum(n)/sum(n)*100, 2)) %>% 
+  kable()
+```
+
+
+Gender counts overall
+```{r}
+climate_df %>% count(Q37) %>% 
+  mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+  kable()
+```
+
+
+
+Gender counts by major
+```{r}
+climate_df %>% 
+  count(Q29, major, Q37, name = "gender_in_major") %>% 
+  kable()
+  
+  
+  
+```
+
+
+```{r}
+# group all disciplines together?
+
+
+climate_df <- climate_df %>% mutate(Q29_binned = case_when(Q29 == 4 ~ "civil",
+                                             TRUE ~ "other")) 
+
+
+```
+
+
+### Distribution of technical vs social for civil engineering students
+
+
+Summary statistics for Q28 factor
+
+
+```{r echo=FALSE}
+
+climate_df <- climate_df %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  select(Q28_social, Q28_tech, Q28_social_norm, Q28_tech_norm) %>% 
+  gather(key = "item", value = "response_values") %>%
+  group_by(item) %>% 
+  summarize(mean = mean(response_values), sd = sd(response_values), n = n()) %>% 
+  kable(digits = 2)
+
+climate_df %>% count(Q29)
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  ggplot(aes(x = Q28_tech_norm)) +
+  geom_histogram(color = "white") +
+  theme_bw() +
+  labs(x = "Global warming is a 'technical' issue normalized score",
+       y = "Number of civil engineering students") +
+  ylim(0, 125)
+
+climate_df %>% 
+  filter(Q29 == 4) %>% 
+  ggplot(aes(x = Q28_social_norm)) +
+  geom_histogram(color = "white") +
+  theme_bw() +
+  labs(x = "Global warming is a 'social' issue normalized score",
+       y = "Number of civil engineering students") +
+  ylim(0, 125)
+
+
+```
+
+
+# RQ 1 - What do civil engineering students believe about global warming? (Q29d, Q18k, Q20a, Q20b, Q20d)
+
+
+
+## Q18k - We should be taking stronger actions to address climate change
+
+```{r}
+
+climate_df <- climate_df %>% mutate(Q18k_bin =  case_when(Q18k == 0 | Q18k == 1 | Q18k == 2 ~ 0,
+                                         Q18k == 3 | Q18k == 4 ~ 1))
+
+
+cont_table_Q18k <- table(climate_df$Q29, climate_df$Q18k_bin)
+cont_table_Q18k
+chisq.test(cont_table_Q18k)
+
+
+mosaicplot(cont_table_Q18k, shade = TRUE, main = "Major vs Q18k - We should take stronger action")
+
+```
+
+
+```{r}
+
+cont_table_Q18k <- table(climate_df$Q29_binned, climate_df$Q18k_bin)
+cont_table_Q18k
+chisq.test(cont_table_Q18k)
+
+
+mosaicplot(cont_table_Q18k, shade = TRUE, main = "Major vs Q18k - We should take stronger action")
+
+
+```
+
+
+
+
+
+```{r}
+#civil_df <- climate_df %>% filter(Q29 == 4) %>% view()
+
+
+
+climate_df <- climate_df %>% 
+  mutate(Q20a_bin = case_when(Q20a == 0 | Q20a == 1 | Q20a == 2 ~ 0,
+                                         Q20a == 3 | Q20a == 4 ~ 1)) %>% 
+  mutate(Q20b_bin = case_when(Q20b == 0 | Q20b == 1 | Q20b == 2 ~ 0,
+                                         Q20b == 3 | Q20b == 4 ~ 1)) %>% 
+  mutate(Q20d_bin = case_when(Q20d == 0 | Q20d == 1 | Q20d == 2 ~ 0,
+                                         Q20d == 3 | Q20d == 4 ~ 1)) 
+
+
+
+```
+
+
+
+
+## Plot for Major by Q20a
+```{r}
+
+
+#CrossTable(climate_df$Q29, climate_df$Q20a_bin, chisq = TRUE)
+
+
+cont_table_Q20a <- table(climate_df$Q29, climate_df$Q20a_bin)
+cont_table_Q20a
+chisq.test(cont_table_Q20a)
+
+
+mosaicplot(cont_table_Q20a, shade = TRUE, main = "Contingency table: Major vs Q20a - I am sure global warming is happening")
+
+#contingency_tab <- xtabs(~ major + Q5d, data = climate_data, na.action = na.pass)
+#contingency_tab
+
+
+
+```
+
+
+```{r}
+
+cont_table_Q20a <- table(climate_df$Q29_binned, climate_df$Q20a_bin)
+cont_table_Q20a
+chisq.test(cont_table_Q20a)
+
+
+mosaicplot(cont_table_Q20a, shade = TRUE, main = "Contingency table: Major vs Q20a - I am sure global warming is happening")
+
+```
+
+
+
+
+## Plot for Major by Q20b
+```{r}
+
+
+#CrossTable(climate_df$Q29, climate_df$Q20b_bin, chisq = TRUE)
+
+
+cont_table_Q20b <- table(climate_df$Q29, climate_df$Q20b_bin)
+cont_table_Q20b
+chisq.test(cont_table_Q20b)
+
+
+mosaicplot(cont_table_Q20b, shade = TRUE, main = "Contingency table: Major vs Q20b - Global warming caused by humans")
+
+
+```
+
+
+```{r}
+
+cont_table_Q20b <- table(climate_df$Q29_binned, climate_df$Q20b_bin)
+cont_table_Q20b
+chisq.test(cont_table_Q20b)
+
+
+mosaicplot(cont_table_Q20b, shade = TRUE, main = "Contingency table: Major vs Q20b - Global warming caused by humans")
+
+
+```
+
+
+
+
+## Plot for Major by Q20d
+```{r}
+
+
+cont_table_Q20d <- table(climate_df$Q29, climate_df$Q20d_bin)
+cont_table_Q20d
+chisq.test(cont_table_Q20d)
+
+
+mosaicplot(cont_table_Q20d, shade = TRUE, main = "Contingency table: Major vs Q20d - Global warming important to me")
+
+
+```
+
+
+```{r}
+
+
+cont_table_Q20d <- table(climate_df$Q29_binned, climate_df$Q20d_bin)
+cont_table_Q20d
+chisq.test(cont_table_Q20d)
+
+
+mosaicplot(cont_table_Q20d, shade = TRUE, main = "Contingency table: Major vs Q20d - Global warming important to me")
+
+
+```
+
+
+
+
+
+## Q22 - What percentage of climate scientists think that human-caused global warming is happening?
+
+```{r}
+
+climate_df <- climate_df %>% mutate(Q22_bin = case_when(Q22 == 4 ~ 1,
+                                          TRUE ~ 0))
+
+
+cont_table_Q22 <- table(climate_df$Q29, climate_df$Q22_bin)
+cont_table_Q22
+chisq.test(cont_table_Q22)
+
+
+mosaicplot(cont_table_Q22, shade = TRUE, main = "Major vs Q22 - Percentage of Scientists")
+
+
+```
+
+
+```{r}
+
+cont_table_Q22 <- table(climate_df$Q29_binned, climate_df$Q22_bin)
+cont_table_Q22
+chisq.test(cont_table_Q22)
+
+
+mosaicplot(cont_table_Q22, shade = TRUE, main = "Major vs Q22 - Percentage of Scientists")
+
+
+```
+
+
+Set colors for majors for all plots
+```{r}
+major_num <- length(unique(climate_df$Q29))
+
+major_colors <- colorRampPalette(brewer.pal(9, "Set1"))(major_num)
+```
+
+
+
+## Q23 - I believe that a cause of global climate change is...
+
+```{r}
+
+climate_df <- climate_df %>%
+  drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j) %>% 
+  mutate(Q23a_bin = case_when(Q23a == 0 | Q23a == 1 | Q23a == 2 ~ 0,
+                                         Q23a == 3 | Q23a == 4 ~ 1)) %>% 
+  mutate(Q23b_bin = case_when(Q23b == 0 | Q23b == 1 ~ 1,
+                                          Q23b == 2| Q23b == 3 | Q23b == 4 ~ 0)) %>% 
+  mutate(Q23c_bin = case_when(Q23c == 0 | Q23c == 1 ~ 1,
+                                         Q23c == 2 | Q23c == 3 | Q23c == 4 ~ 0)) %>% 
+  mutate(Q23d_bin = case_when(Q23d == 0 | Q23d == 1 | Q23d == 2 ~ 0,
+                                         Q23d == 3 | Q23d == 4 ~ 1)) %>% 
+  mutate(Q23e_bin = case_when(Q23e == 0 | Q23e == 1 ~ 1,
+                                         Q23e == 2| Q23e == 3 | Q23e == 4 ~ 0)) %>% 
+  mutate(Q23f_bin = case_when(Q23f == 0 | Q23f == 1 | Q23f == 2 ~ 0,
+                                         Q23f == 3 | Q23f == 4 ~ 1)) %>% 
+  mutate(Q23g_bin = case_when(Q23g == 0 | Q23g == 1 ~ 1,
+                                         Q23g == 2 | Q23g == 3 | Q23g == 4 ~ 0)) %>% 
+  mutate(Q23h_bin = case_when(Q23h == 0 | Q23h == 1 | Q23h == 2 ~ 0,
+                                         Q23h == 3 | Q23h == 4 ~ 1)) %>% 
+  mutate(Q23i_bin = case_when(Q23i == 0 | Q23i == 1 ~ 1,
+                                         Q23i == 2 | Q23i == 3 | Q23i == 4 ~ 0)) %>% 
+  mutate(Q23j_bin = case_when(Q23j == 0 | Q23j == 1 ~ 1,
+                                         Q23j == 2 | Q23j == 3 | Q23j == 4 ~ 0)) %>% 
+  mutate(Q23_bin_total = Q23a_bin + Q23b_bin + Q23c_bin + Q23d_bin + Q23e_bin + 
+           Q23f_bin + Q23g_bin + Q23h_bin + Q23i_bin + Q23j_bin) %>% 
+  mutate(Q23_bin_total_pct = (Q23_bin_total/10) * 100)
+  
+
+
+
+climate_df %>% 
+  ggplot(aes(x = major, y = Q23_bin_total_pct, fill = major)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q23 percent correct",
+       title = "Q23 Score (Causes of climate change) by major")
+
+
+
+```
+
+
+
+
+### ANOVA for Q23 scores by major
+
+```{r}
+
+res.aov <- aov(Q23_bin_total ~ major, data = climate_df)
+summary(res.aov)
+
+TukeyHSD(res.aov)
+
+
+
+```
+
+
+### T-test for Q23 scores by civl vs others
+
+
+```{r}
+
+
+climate_df %>% 
+  ggplot(aes(x = as_factor(Q29_binned), y = Q23_bin_total, fill = Q29_binned)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q23 cumulative score",
+       title = "Q23 Score (Causes of climate change) by major")
+
+
+
+```
+
+Checking t-test assumptions
+
+```{r}
+# test assumptions for t-test
+with(climate_df, shapiro.test(Q23_bin_total[Q29_binned == "civil"]))
+with(climate_df, shapiro.test(Q23_bin_total[Q29_binned == "other"]))
+
+## failed normality assumption
+
+
+#equal variance test - passed this test
+
+res.ftest <- var.test(Q23_bin_total ~ Q29_binned, data = climate_df)
+res.ftest
+
+res <- t.test(Q23_bin_total ~ Q29_binned, data = climate_df, var.equal = FALSE)
+res
+
+
+
+
+
+```
+
+
+
+
+## Q24 - I believe a way to help reduce or slow down climate change is...
+
+```{r}
+
+
+climate_df <- climate_df %>%
+  drop_na(Q24a, Q24b, Q24c, Q24d, Q24e, Q24f, Q24g, Q24h, Q24i, Q24j, Q24k) %>% 
+  mutate(Q24a_bin = case_when(Q24a == 0 | Q24a == 1 | Q24a == 2 ~ 0,
+                                         Q24a == 3 | Q24a == 4 ~ 1)) %>% 
+  mutate(Q24b_bin = case_when(Q24b == 0 | Q24b == 1 | Q24b == 2 ~ 0,
+                                         Q24b == 3 | Q24b == 4 ~ 1)) %>% 
+  mutate(Q24c_bin = case_when(Q24c == 0 | Q24c == 1 | Q24c == 2 ~ 0,
+                                         Q24c == 3 | Q24c == 4 ~ 1)) %>% 
+  mutate(Q24d_bin = case_when(Q24d == 0 | Q24d == 1 ~ 1,
+                                          Q24d == 2 | Q24d == 3 | Q24d == 4 ~ 0)) %>% 
+  mutate(Q24e_bin = case_when(Q24e == 0 | Q24e == 1 | Q24e == 2 ~ 0,
+                                         Q24e == 3 | Q24e == 4 ~ 1)) %>% 
+  mutate(Q24f_bin = case_when(Q24f == 0 | Q24f == 1 ~ 1,
+                                         Q24f == 2 | Q24f == 3 | Q24f == 4 ~ 0)) %>% 
+  mutate(Q24g_bin = case_when(Q24g == 0 | Q24g == 1 | Q24g == 2 ~ 0,
+                                         Q24g == 3 | Q24g == 4 ~ 1)) %>% 
+  mutate(Q24h_bin = case_when(Q24h == 0 | Q24h == 1 | Q24h == 2 ~ 0,
+                                         Q24h == 3 | Q24h == 4 ~ 1)) %>% 
+  mutate(Q24i_bin = case_when(Q24i == 0 | Q24i == 1 ~ 1,
+                                         Q24i == 2 | Q24i == 3 | Q24i == 4 ~ 0)) %>% 
+  mutate(Q24j_bin = case_when(Q24j == 0 | Q24j == 1 | Q24j == 2 ~ 0,
+                                         Q24j == 3 | Q24j == 4 ~ 1)) %>%
+  mutate(Q24k_bin = case_when(Q24k == 0 | Q24k == 1 | Q24k == 2 ~ 0,
+                                         Q24k == 3 | Q24k == 4 ~ 1)) %>% 
+  mutate(Q24_bin_total = Q24a_bin + Q24b_bin + Q24c_bin + Q24d_bin + Q24e_bin + 
+           Q24f_bin + Q24g_bin + Q24h_bin + Q24i_bin + Q24j_bin + Q24k_bin) %>% 
+  mutate(Q24_bin_total_pct = (Q24_bin_total/11) * 100)
+  
+
+
+climate_df %>% 
+  ggplot(aes(x = major, y = Q24_bin_total_pct, fill = major)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q24 percent correct",
+       title = "Q24 Score (Ways to slow down climate change) by major")
+
+
+
+```
+
+
+```{r}
+
+
+climate_df %>% 
+  ggplot(aes(x = as_factor(Q29_binned), y = Q24_bin_total_pct, fill = Q29_binned)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q24 cumulative score",
+       title = "Q24 Score (slow down climate change) by major")
+
+```
+
+```{r}
+
+res <- t.test(Q24_bin_total ~ Q29_binned, data = climate_df, var.equal = FALSE)
+res
+
+```
+
+
+
+
+
+
+
+## Q25 Which of the following...
+(a) is the most abundant greenhouse gas
+(b) amplifies the greenhouse gas effect the most?
+(c) should we be most concerned about when thinking about global warming? CO2
+
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(Q25a_bin = case_when(Q25a == 2 ~ 1,
+                              TRUE ~ 0),
+         Q25b_bin = case_when(Q25b == 3 ~ 1,
+                              TRUE ~ 0),
+         Q25c_bin = case_when(Q25c == 1 ~ 1,
+                              TRUE ~ 0))
+
+
+```
+
+
+### Q25a
+
+```{r}
+
+
+cont_table_Q25a <- table(climate_df$Q29, climate_df$Q25a_bin)
+cont_table_Q25a
+chisq.test(cont_table_Q25a)
+
+
+mosaicplot(cont_table_Q25a, shade = TRUE, main = "Major vs Q25a - Most abundant greenhouse gas")
+
+
+```
+
+
+```{r}
+
+cont_table_Q25a <- table(climate_df$Q29_binned, climate_df$Q25a_bin)
+cont_table_Q25a
+chisq.test(cont_table_Q25a)
+
+
+mosaicplot(cont_table_Q25a, shade = TRUE, main = "Civil vs others - Q25a - Most abundant greenhouse gas")
+
+
+```
+
+
+
+
+### Q25b
+
+
+```{r}
+
+
+cont_table_Q25b <- table(climate_df$Q29, climate_df$Q25b_bin)
+cont_table_Q25b
+chisq.test(cont_table_Q25b)
+
+
+mosaicplot(cont_table_Q25b, shade = TRUE, main = "Major vs Q25b - Amplifies greenhouse gas effect most")
+
+
+```
+
+
+```{r}
+
+cont_table_Q25b <- table(climate_df$Q29_binned, climate_df$Q25b_bin)
+cont_table_Q25b
+chisq.test(cont_table_Q25b)
+
+
+mosaicplot(cont_table_Q25b, shade = TRUE, main = "Civil vs others - Q25b - Amplifies greenhouse gas effect most")
+
+
+```
+
+
+
+Q25c
+
+
+
+```{r}
+
+
+cont_table_Q25c <- table(climate_df$Q29, climate_df$Q25c_bin)
+cont_table_Q25c
+chisq.test(cont_table_Q25c)
+
+
+mosaicplot(cont_table_Q25c, shade = TRUE, main = "Major vs Q25c - Most concerning")
+
+
+```
+
+
+```{r}
+
+cont_table_Q25c <- table(climate_df$Q29_binned, climate_df$Q25c_bin)
+cont_table_Q25c
+chisq.test(cont_table_Q25c)
+
+
+mosaicplot(cont_table_Q25c, shade = TRUE, main = "Civil vs others - Q25c - Most concerning")
+
+
+```
+
+
+
+
+
+
+## Q26 - How much do you agree or disagree with the following statements about Earth's climate?
+
+
+Recoding Q26 for t/F and then creating a total score out of 8
+```{r}
+
+climate_df <- climate_df %>%
+  drop_na(Q26a, Q26b, Q26c, Q26d, Q26e, Q26f, Q26g, Q26h) %>% 
+  mutate(Q26a_bin = case_when(Q26a == 0 | Q26a == 1 ~ 1,
+                                         Q26a == 2 | Q26a == 3 | Q26a == 4 ~ 0)) %>% 
+  mutate(Q26b_bin = case_when(Q26b == 0 | Q26b == 1 ~ 1,
+                                          Q26b == 2| Q26b == 3 | Q26b == 4 ~ 0)) %>% 
+  mutate(Q26c_bin = case_when(Q26c == 0 | Q26c == 1 ~ 1,
+                                         Q26c == 2 | Q26c == 3 | Q26c == 4 ~ 0)) %>% 
+  mutate(Q26d_bin = case_when(Q26d == 0 | Q26d == 1 | Q26d == 2 ~ 0,
+                                         Q26d == 3 | Q26d == 4 ~ 1)) %>% 
+  mutate(Q26e_bin = case_when(Q26e == 0 | Q26e == 1 ~ 1,
+                                         Q26e == 2| Q26e == 3 | Q26e == 4 ~ 0)) %>% 
+  mutate(Q26f_bin = case_when(Q26f == 0 | Q26f == 1 | Q26f == 2 ~ 0,
+                                         Q26f == 3 | Q26f == 4 ~ 1)) %>% 
+  mutate(Q26g_bin = case_when(Q26g == 0 | Q26g == 1 ~ 1,
+                                         Q26g == 2 | Q26g == 3 | Q26g == 4 ~ 0)) %>% 
+  mutate(Q26h_bin = case_when(Q26h == 0 | Q26h == 1 ~ 1,
+                                         Q26h == 2 | Q26h == 3 | Q26h == 4 ~ 0)) %>% 
+  mutate(Q26_bin_total = Q26a_bin + Q26b_bin + Q26c_bin + Q26d_bin + Q26e_bin + Q26f_bin + Q26g_bin + Q26h_bin) %>% 
+  mutate(Q26_bin_total_pct = (Q26_bin_total/8) * 100)
+  
+
+```
+
+
+
+```{r}
+climate_df %>% 
+  ggplot(aes(x = major, y = Q26_bin_total_pct, fill = major)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q26 percent correct",
+       title = "Q26 Score (Statements about Earth's climate) by major")
+
+
+
+```
+
+
+```{r}
+
+
+climate_df %>% 
+  ggplot(aes(x = as_factor(Q29_binned), y = Q26_bin_total, fill = Q29_binned)) +
+  geom_boxplot() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q26 cumulative score",
+       title = "Q26 Score (Statements about Earth's climate) by major")
+
+```
+
+```{r}
+
+res <- t.test(Q26_bin_total ~ Q29_binned, data = climate_df, var.equal = FALSE)
+res
+
+```
+
+
+
+
+
+### Q26 EFA
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(Q26a_rev = 4 - Q26a,
+         Q26b_rev = 4 - Q26b,
+         Q26c_rev = 4 - Q26c,
+         Q26g_rev = 4 - Q26g,
+         Q26h_rev = 4 - Q26h)
+climate_df %>% select(Q26a, Q26a_rev, Q26b, Q26b_rev, Q26d)
+
+q26_cor <- climate_df %>% 
+  select(Q26a_rev, Q26b_rev, Q26c_rev, Q26d, Q26e, Q26f, Q26g_rev, Q26h_rev) %>% 
+  drop_na() %>% 
+  cor()
+  
+q26_efa <- fa(r = q26_cor, nfactors = 2)
+q26_efa
+
+```
+
+
+
+#### There appear to be two factors from Q26 - one for low information (items a, b, c, g, and h) and one for higher information (d, e, f)
+
+
+Create two new factors for Q26 (Q26_low_info, from the reverse-coded a,b,c,g,h and Q26_high_info from d,e,f)
+
+```{r}
+
+climate_df <- climate_df %>% 
+  mutate(Q26_low_info = (Q26a_rev + Q26b_rev + Q26c_rev + Q26g_rev + Q26h_rev) / 5,
+         Q26_high_info = (Q26d + Q26e + Q26f) / 3)
+
+
+```
+
+
+#### Compare scores for low info among different majors
+```{r}
+
+climate_df %>% 
+  ggplot(aes(x = major, y = Q26_low_info, fill = major)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q26 cumulative low info score",
+       title = "Q26 low info factor Score by major")
+
+```
+
+ANOVA for Q26 factor 1 (low_info score)
+
+```{r}
+
+
+
+```
+
+
+
+
+
+```{r}
+
+climate_df %>% 
+  ggplot(aes(x = major, y = Q26_high_info, fill = major)) +
+  geom_boxplot() +
+  scale_fill_manual(values = major_colors) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Major",
+       y = "Q26 cumulative high info score",
+       title = "Q26 high info factor Score by major")
+
+```
+
+
+
+
+
+
+
+
+
+## Attempt to combine all tests together
+
+### Q23 - I believe that a cause of global climate change is...
+
+```{r}
+#Q7_tally_vars <- paste0("Q7", letters[0:22], "_tally")
+
+## NOTE: Q29_binned is civil vs other
+
+Q23_bin_vars <- paste0("Q23", letters[0:10], "_bin")
+
+climate_df %>% drop_na(Q29, Q18c, Q20a, Q20b, Q20d, Q18k, Q22) %>% 
+  drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j) %>% 
+  drop_na(Q24a, Q24b, Q24c, Q24d, Q24e, Q24f, Q24g, Q24h, Q24i, Q24j, Q24k) %>% 
+  drop_na(Q25a, Q25b, Q25c) %>% 
+  drop_na(Q26a, Q26b, Q26c, Q26d, Q26e, Q26f, Q26g, Q26h) %>% 
+  drop_na(Q28a, Q28b, Q28c, Q28d, Q28e, Q28f, Q28g, Q28h, Q28i, Q28j, Q28k, Q28l)
+
+
+belief_cause_df <- climate_df %>% 
+  select(student_id,
+         Q29_binned, 
+         Q23_bin_vars) %>% 
+  pivot_longer(cols = Q23a_bin:Q23j_bin, 
+               names_to = "Q23_bin_item", values_to = "Q23_bin_resp")
+
+
+belief_cause_df %>% 
+  group_by(Q23_bin_item, Q29_binned) %>% 
+  count(Q23_bin_resp)
+
+```
+
+
+            
+
+```{r}
+#nested$data[1]
+
+nested <- belief_cause_df %>% 
+  mutate(Q29_binned = as_factor(Q29_binned)) %>% 
+  group_by(Q23_bin_item) %>% 
+  nest(data = c(student_id, Q29_binned, Q23_bin_resp)) %>% 
+  mutate(
+    Q23_item_name = case_when(
+      Q23_bin_item == "Q23a_bin" ~ "Burning fossil fuels", 
+      Q23_bin_item == "Q23b_bin" ~ "Nuclear power generation",
+      Q23_bin_item == "Q23c_bin" ~ "Ozone hole in upper atmos.",
+      Q23_bin_item == "Q23d_bin" ~ "Livestock production",
+      Q23_bin_item == "Q23e_bin" ~ "Drumping trash into oceans",
+      Q23_bin_item == "Q23f_bin" ~ "Waste rotting in landfills",
+      Q23_bin_item == "Q23g_bin" ~ "Agricultural use of chem. fert.",
+      Q23_bin_item == "Q23h_bin" ~ "Deforestation",
+      Q23_bin_item == "Q23i_bin" ~ "Volcanic eruptions",
+      Q23_bin_item == "Q23j_bin" ~ "Acid rain"),
+    cont_tab = purrr::map(data, ~table(.$Q29_binned, .$Q23_bin_resp)),
+    test = purrr::map(data, ~chisq.test(.$Q29_binned, .$Q23_bin_resp)),
+    tidied = purrr::map(test, tidy),
+    m_plot = mosaicplot(cont_tab[[1]], shade = TRUE, main = Q23_item_name)
+    )
+
+
+
+
+```
+
+
+
+```{r}
+
+nested %>% 
+  select(Q23_bin_item, Q23_item_name, tidied) %>% 
+  unnest(tidied) %>% 
+  kable()
+
+
+```
+
+

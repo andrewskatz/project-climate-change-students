@@ -1,0 +1,2070 @@
+---
+title: "q27 clustering and college experiences"
+author: "Katz"
+date: "09/07/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message=FALSE)
+```
+
+
+
+```{r}
+
+library(RColorBrewer)
+library(tidyverse)
+library(dbscan)
+library(umap)
+library(psych)
+library(gmodels)
+library(graphics)
+library(knitr)
+library(purrr)
+library(tidytext)
+library(ggmosaic)
+library(brms)
+library(lme4)
+library(parallel)
+library(ggridges)
+library(tidybayes)
+library(ggridges)
+
+library(ggmcmc)
+library(maps)
+library(ggmap)
+
+library(mice)
+
+```
+
+
+
+
+```{r}
+
+#climate_df <- read_csv("G:/My Drive/AK Faculty/Research/Projects/project students and climate change/updated_climate_df_2.csv")
+data_folder <- "G:/My Drive/AK Faculty/Research/Projects/project students and climate change/data/"
+data_file <- "updated_climate_df_2.csv"
+
+climate_df <- read_csv(paste0(data_folder, data_file))
+
+
+## Drop duplicates
+climate_df <- climate_df %>% distinct(Litho, .keep_all = TRUE)
+
+
+
+## Add in major as string instead of number
+
+climate_df <- climate_df %>% 
+  mutate(major = case_when(Q29 == 1 ~ "Aer/Oce",
+                           Q29 == 2 ~ "Agr/Biol",
+                           Q29 == 3 ~ "Bio",
+                           Q29 == 4 ~ "Civ",
+                           Q29 == 5 ~ "Che",
+                           Q29 == 6 ~ "Con",
+                           Q29 == 7 ~ "Comp",
+                           Q29 == 8 ~ "Ele",
+                           Q29 == 9 ~ "EngPhy",
+                           Q29 == 10 ~ "Env/Eco",
+                           Q29 == 11 ~ "Ind",
+                           Q29 == 12 ~ "Mat",
+                           Q29 == 13 ~ "Mec",
+                           Q29 == 14 ~ "Min",
+                           Q29 == 15 ~ "Nuc",
+                           Q29 == 16 ~ "Softw",
+                           Q29 == 17 ~ "Str/Arc",
+                           Q29 == 18 ~ "Gen"))
+
+
+```
+
+
+
+```{r}
+climate_df %>% count(Q29, sort = TRUE) # 735 NAs
+
+climate_df %>% count(Q32) # 597 NAs
+
+climate_df %>% filter(!is.na(Q29)) %>% count(Q32) #156 NAs
+
+
+climate_df %>% count(Q33)
+
+climate_df %>% filter(!is.na(Q29)) %>% count(Q33, sort = TRUE)
+
+climate_df %>% count(Q37)
+
+
+```
+
+
+
+Drop NAs for specific questions and filter out disciplines with fewer than 30 (the cutoff) students in sample
+
+```{r}
+
+Q2_vars <- paste0("Q2", letters[1:7])
+#Q3_vars <- paste0("Q3", letters[1:7])
+
+#climate_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+
+
+Q27_vars <- paste0("Q27", letters[1:9])
+Q28_vars <- paste0("Q28", letters[1:12])
+
+
+# climate_df <- climate_df %>% 
+#   drop_na(Q29, Q18k, Q20a, Q20b, Q20d, Q18k, Q22) %>%
+#   drop_na(Q23a, Q23b, Q23c, Q23d, Q23e, Q23f, Q23g, Q23h, Q23i, Q23j) %>%
+#   drop_na(Q24a, Q24b, Q24c, Q24d, Q24e, Q24f, Q24g, Q24h, Q24i, Q24j, Q24k) %>%
+#   drop_na(Q25a, Q25b, Q25c) %>%
+#   drop_na(Q26a, Q26b, Q26c, Q26d, Q26e, Q26f, Q26g, Q26h) %>%
+#   drop_na(Q27_vars) %>%
+#   drop_na(Q28_vars)
+
+climate_df <- climate_df %>% 
+  drop_na(Q29, Q27_vars, Q32, Q37, Q40, Q6a, Q6d, Q6e, Q6i, Q6j, Q8j, Q8n)
+
+climate_df %>% count(Q29, sort = TRUE)
+
+#cutoff <- 30
+
+
+climate_df <- climate_df %>% 
+  add_count(Q29, name = "major_count") %>% 
+  filter(major_count > 30)
+
+
+climate_df %>% count(Q29, sort = TRUE)
+
+count_tbl <- climate_df %>% count(Q29, major, sort = TRUE)
+
+```
+
+
+Major counts and percentages
+```{r}
+count_tbl %>% 
+  mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+  mutate(cumulat_pct = round(cumsum(n)/sum(n)*100, 2)) %>% 
+  kable()
+```
+
+Gender counts overall
+```{r}
+climate_df %>% count(Q37) %>% 
+  mutate(pct_total = round((n / sum(n))*100, 2)) %>% 
+  kable()
+```
+
+
+
+fill in 0s for NAs for specific items (Q1, Q3, Q5)
+```{r}
+
+
+### Fill in NAs for specific items ---- 
+
+Q1_vars <- paste0("Q1", letters[1:20])
+Q3_vars <- paste0("Q3", letters[1:7])
+Q5_vars <- paste0("Q5", letters[1:10])
+Q16_vars <- paste0("Q16", letters[1:13])
+Q27_vars <- paste0("Q27", letters[1:9])
+Q28_vars <- paste0("Q28", letters[1:12])
+Q35_vars <- paste0("Q35", letters[1:9])
+Q39_vars <- paste0("Q39", letters[1:9])
+
+Q7_vars <- paste0("Q7", letters[1:22])
+Q7tally_vars <- paste0("Q7", letters[1:22], "_tally")
+
+
+
+
+#climate_df[, Q1_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q1_vars), ~replace_na(., 0))
+#climate_df[, Q1_vars]
+
+#climate_df[, Q3_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q3_vars), ~ replace_na(.,0))
+#climate_df[, Q3_vars]
+
+#climate_df[,Q5_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q5_vars), ~ replace_na(.,0))
+#climate_df[, Q5_vars]
+
+#climate_df[, Q7_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q7_vars), ~ replace_na(., 0))
+#climate_df[,Q7_vars]
+
+#climate_df[, Q35_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q35_vars), ~ replace_na(., 0))
+#climate_df[,Q35_vars]
+
+#climate_df[, Q39_vars]
+climate_df <- climate_df %>% mutate_at(vars(Q39_vars), ~ replace_na(., 0))
+#climate_df[,Q39_vars]
+
+
+#climate_df[, Q28_vars]
+#climate_df <- climate_df %>% drop_na(Q28_vars)
+#climate_df[, Q28_vars]
+#climate_df <- climate_df %>% drop_na(Q16_vars)
+
+
+
+
+
+```
+
+
+
+```{r}
+
+climate_df <- climate_df %>% drop_na(all_of(Q28_vars))
+climate_df <- climate_df %>% drop_na(all_of(Q27_vars)) #should have 3313 observations
+
+
+
+climate_df <- climate_df %>% 
+  mutate(Q28_social = Q28c + Q28d + Q28e + Q28j + Q28l,
+         Q28_tech = Q28a + Q28f + Q28g + Q28h + Q28i + Q28k,
+         Q28_social_norm = Q28_social / 5,
+         Q28_tech_norm = Q28_tech / 6)
+
+
+```
+
+
+Drop majors with low counts (below 30 students in sample)
+```{r}
+
+climate_df %>% count(Q29, sort = TRUE)
+climate_df %>% count(major, sort = TRUE)
+cutoff <- 30
+
+climate_df <- climate_df %>% add_count(Q29, name = "major_count") %>% filter(major_count > cutoff)
+
+```
+
+
+Drop majors with NA as major
+
+
+```{r}
+
+climate_df <- climate_df %>% filter(!is.na(major))
+climate_df %>% count(major, sort = TRUE)
+
+```
+
+
+
+# Clustering Process (two-step process using UMAP + HDBSCAN)
+
+```{r}
+
+
+climate_df <- climate_df %>% 
+  mutate(Q27a_tri_num = case_when(Q27a == 1 | Q27a == 2 ~ 0,
+                                  Q27a == 3 | Q27a == 4 ~1, 
+                                  Q27a == 5 ~ 2),
+         Q27b_tri_num = case_when(Q27b == 1 | Q27b == 2 ~ 0,
+                                  Q27b == 3 | Q27b == 4 ~1,
+                                  Q27b == 5 ~ 2),
+         Q27c_tri_num = case_when(Q27c == 1 | Q27c == 2 ~ 0,
+                                  Q27c == 3 | Q27c == 4 ~ 1,
+                                  Q27c == 5 ~ 2),
+         Q27d_tri_num = case_when(Q27d == 1 | Q27d == 2 ~ 0,
+                                  Q27d == 3 | Q27d == 4 ~ 1,
+                                  Q27d == 5 ~ 2),
+         Q27e_tri_num = case_when(Q27e == 1 | Q27e == 2 ~ 0,
+                                  Q27e == 3 | Q27e == 4 ~ 1,
+                                  Q27e == 5 ~ 2),
+         Q27f_tri_num = case_when(Q27f == 1 | Q27f == 2 ~ 0,
+                                  Q27f == 3 | Q27f == 4 ~ 1,
+                                  Q27f == 5 ~ 2),
+         Q27g_tri_num = case_when(Q27g == 1 | Q27g == 2 ~ 0,
+                                  Q27g == 3 | Q27g == 4 ~ 1,
+                                  Q27g == 5 ~ 2),
+         Q27h_tri_num = case_when(Q27h == 1 | Q27h == 2 ~ 0,
+                                  Q27h == 3 | Q27h == 4 ~ 1,
+                                  Q27h == 5 ~ 2),
+         Q27i_tri_num = case_when(Q27i == 1 | Q27i == 2 ~ 0,
+                                  Q27i == 3 | Q27i == 4 ~ 1,
+                                  Q27i == 5 ~ 2))
+
+
+
+
+Q27_tri_num_vars <- paste0("Q27", letters[1:9], "_tri_num")
+
+climate_df <- climate_df %>% 
+  rowid_to_column(var = "student_id")
+
+climate_27_tri_df <- climate_df %>% 
+  select(student_id, Q5a, Q5b, Q5c, Q5d, Q5e, Q5f, Q5g, Q5h, Q5i, Q5j, Q27_tri_num_vars)
+
+```
+
+
+First perform dimension reduction using UMAP
+```{r}
+climate_27_tri_df <- drop_na(climate_27_tri_df)
+
+last_letter <- 9
+Q27_tri_num_vars <- paste0("Q27", letters[1:last_letter], "_tri_num")
+
+
+#Q27_tri_num_vars <- c("Q27a_tri_num", "Q27b_tri_num", "Q27c_tri_num")
+
+# create custom settings for umap
+custom.settings = umap.defaults
+#custom.settings$n_neighbors = 30
+custom.settings$n_components = 2
+custom.settings$n_neighbors = 55 # next time, try dropping this from 55 to 30
+custom.settings$min_dist = 0.00001 # experimental, dropping down from 0.1 to 0.0
+custom.settings$metric = 'euclidean'
+
+## 30 neighbors seems to work well
+
+
+climate_27_tri_umap <- climate_27_tri_df %>% 
+  select(Q27_tri_num_vars) %>% 
+  umap(random_state = 123, config = custom.settings)
+
+
+
+
+
+# climate_27_tri_umap <- climate_27_tri_df %>% select(Q27_tri_num_vars) %>% umap(random_state = 123)
+climate_27_tri_umap
+names(climate_27_tri_umap$layout)
+names(climate_27_tri_umap$layout) <- c("dim1", "dim2")
+
+head(climate_27_tri_umap$layout, 3)
+head(climate_27_tri_umap$layout[,1])
+head(climate_27_tri_umap$layout[,2])
+
+# visualize the reduction 
+plot(climate_27_tri_umap$layout[,1], climate_27_tri_umap$layout[,2])
+
+plot_df <- climate_27_tri_umap$layout
+plot_df <- as_tibble(plot_df)
+names(plot_df) <- c("dim1", "dim2")
+ggplot(data = plot_df, aes(x = dim1, y = dim2)) +
+  geom_point()
+```
+
+
+Next, perform clustering with HDBSCAN
+
+```{r}
+# perform clustering using HDBSCAN on the dim-reduced data
+# clustering with min 60 pts leaves 131 unclustered
+#clustering with 40 creates 13 groups and 29 unclustered
+### Best combination: n_components=2, n_neighbords=80, min_dist=0.001, minPts=90 (or 50)
+### also good: n_comp=2, n_neigh=20 or 30, min_dist=0.0001, minPts=50
+hdbscan_umap_cl <- hdbscan(plot_df, minPts = 120) 
+# groups stay pretty similar from minPts 70 up to 150, when it drops from 9 to 6 clusters
+
+hdbscan_umap_cl
+
+
+# add the cluster labels to the plotting dataframe
+plot_df$cluster <- hdbscan_umap_cl$cluster
+
+# plot the reduction with the clusters
+plot_df %>% 
+  ggplot(aes(x = dim1, y = dim2, color = as.factor(cluster))) +
+  geom_point() +
+  labs(x = "UMAP projection dimension 1", 
+       y = "UMAP projection dimension 2",
+       color = "Cluster",
+       title = "Two-dimensional projection of simplified Q27 using UMAP") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+# add the cluster labels back to the original data set
+climate_27_tri_df$cluster <- hdbscan_umap_cl$cluster
+
+climate_27_tri_df %>% 
+  ggplot(aes(x = cluster)) +
+  geom_histogram() +
+  labs(x = "Cluster",
+       y = "Count",
+       title = "Histogram of clusters for Question 27 ternary split") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 8))
+
+
+
+```
+
+
+Join the dataframes back together again
+
+```{r}
+# Add the cluster assignments back to the original climate_df dataframe
+climate_df <- climate_27_tri_df %>% select(student_id, cluster) %>% inner_join(climate_df, by = "student_id")
+```
+
+
+```{r}
+#climate_df <- climate_df %>% rename(cluster = cluster.y)
+
+climate_df %>% count(cluster, sort = TRUE)
+
+
+```
+
+
+
+
+## Views of when climate change will affect different groups broken down by cluster assignments
+
+
+## Looking for patterns in the clusters
+
+
+```{r}
+q27_item_list <- list(
+  'Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment"
+)
+
+q27_labs <- c("Me personally", 
+              "My family",
+              "People in my comm.",
+              "People in US",
+              "Other indust. countr.",
+              "Developing countries",
+              "Plant + animal species",
+              "World's poor",
+              "Natural environment")
+
+names(q27_labs) <- c("Q27a_tri_num",
+                     "Q27b_tri_num",
+                     "Q27c_tri_num",
+                     "Q27d_tri_num",
+                     "Q27e_tri_num",
+                     "Q27f_tri_num",
+                     "Q27g_tri_num",
+                     "Q27h_tri_num",
+                     "Q27i_tri_num")
+```
+
+
+
+# Understanding cluster compositions more
+
+
+#### First create a dataframe with the rankings for each cluster, where a lower ranking means students in the cluster think climate change will affect more categories sooner. 
+
+
+
+```{r}
+
+## create dataframe with rankings for cluster by how soon each cluster believes climate change will affect groups
+cluster_ranking_df <- climate_df %>% 
+  mutate(Q27_tri_total = Q27a_tri_num + Q27b_tri_num + Q27c_tri_num + Q27d_tri_num + Q27e_tri_num +
+           Q27f_tri_num + Q27g_tri_num + Q27h_tri_num + Q27i_tri_num) %>% 
+  group_by(cluster) %>% 
+  summarize(cluster_avg = mean(Q27_tri_total)) %>% 
+  arrange(cluster_avg) %>% 
+  rowid_to_column(var = "cluster_time_rank")
+
+cluster_ranking_df
+
+climate_df <- climate_df %>% 
+  inner_join(cluster_ranking_df, by = "cluster")
+
+#climate_27_tri_df %>% inner_join(cluster_ranking_df, by = "cluster")
+
+
+```
+
+
+Set clustering colors for all plots
+```{r}
+#Old method of randomly assigning colors
+# cluster_num <- length(unique(climate_df$cluster))
+# 
+# cluster_colors <- colorRampPalette(brewer.pal(9, "Set1"))(cluster_num)
+
+# new method of assigning cluster colors along a gradient
+cluster_num <- length(unique(climate_df$cluster_time_rank))
+
+# cluster colors with red, yellow, green
+#cluster_colors <- colorRampPalette(c("#ec3434", "#f7c035", "#007030"))(cluster_num)
+
+# cluster colors with grayscale
+cluster_colors <- colorRampPalette(c("#000000", "#a8adb5", "#dedede"))(cluster_num)
+
+
+```
+
+
+
+### Look at distribution of cluster for how when they think each community may be affected by global warming
+
+```{r}
+climate_df %>%
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>% 
+  ggplot(aes(x = as_factor(response))) +
+  geom_bar(aes(fill = as_factor(cluster_time_rank))) +
+  facet_wrap(.~ survey_item, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "Converted Ternary Response (0 = Now, 1 = Later, 2 = Never)",
+       y = "Count",
+       title = "Histogram of when will global warming affect different groups?",
+       fill = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+Same information but faceted with clusters
+
+** This is a good plot for seeing that a cluster's beliefs about effects of global warming on different populations at different times vary in a clear pattern
+```{r}
+
+climate_df %>%
+  #filter(cluster != 0) %>% 
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = survey_item)) +
+  geom_bar(aes(fill = as_factor(response))) +
+  facet_wrap(.~ cluster_time_rank, 
+             scales = "free",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "When will global warming affect this population?",
+       y = "Count",
+       title = "Cluster patterns of when will global warming affect various populations",
+       fill = "Response") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8)) +
+  scale_fill_manual(values = c("#000000", "#a8adb5", "#dedede"), 
+                    name = "Response", 
+                    labels = c("0" = "0-10 yrs", "1" = "25-50y yrs", "2" = "Never")) +
+  scale_x_discrete(labels = c('Q27a_tri_num' = "Me personally",
+  "Q27b_tri_num" = "My family",
+  "Q27c_tri_num" = "People in my comm.",
+  "Q27d_tri_num" = "People in US",
+  "Q27e_tri_num" = "Other indust. countr.",
+  "Q27f_tri_num" = "Developing countries",
+  "Q27g_tri_num" = "Plant + animal species",
+  "Q27h_tri_num" = "World's poor",
+  "Q27i_tri_num" = "Natural environment")) + 
+  coord_flip()
+
+```
+
+
+Same information with histograms
+
+```{r}
+
+climate_df %>%
+  pivot_longer(cols = Q27a_tri_num:Q27i_tri_num, names_to = "survey_item", values_to = "response") %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = response)) +
+  geom_histogram() +
+  facet_grid(survey_item ~ cluster_time_rank, 
+             scales = "free_y",
+             labeller = labeller(survey_item = q27_labs)) +
+  theme_bw() +
+  labs(x = "Converted Ternary Response (0 = Now, 1 = Later, 2 = Never)",
+       y = "Count",
+       title = "Histogram of when will global warming affect different groups?",
+       fill = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5, size = 8),
+        strip.text.y = element_text(size = 7)) +
+#  scale_fill_manual(values = cluster_colors) +
+  scale_x_continuous(breaks = c(0, 1, 2))
+
+```
+
+
+
+#### Overall count for clusters
+
+
+```{r}
+climate_df %>% 
+  filter(cluster != 0) %>% 
+  group_by(cluster_time_rank) %>% 
+  summarize(n = n()) %>% 
+  mutate(perc = round(n / sum(n) * 100, 2)) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = fct_reorder(cluster_time_rank, perc), 
+             y = perc, fill = as_factor(cluster_time_rank))) +
+  geom_col() +
+  theme_light() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Cluster", 
+       y = "Percentage of students in cluster",
+       title = "Distribution of temporal belief clusters in engineering students") +
+  scale_fill_manual(values = cluster_colors)
+
+
+```
+
+
+
+Without reordering by largest to smallest
+
+```{r}
+
+climate_df %>% 
+  filter(cluster != 0) %>% 
+  group_by(cluster_time_rank) %>% 
+  summarize(n = n()) %>%
+  mutate(perc = round(n / sum(n) * 100, 2)) %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  ggplot(aes(x = cluster_time_rank, 
+             y = perc, 
+             fill = cluster_time_rank)) +
+  geom_col() +
+  theme_light() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5, size = 8)) +
+  labs(x = "Cluster", 
+       y = "Percentage of students in cluster",
+       title = "Distribution of temporal belief clusters in engineering students") +
+  scale_fill_manual(values = cluster_colors)
+
+```
+
+
+
+
+
+
+
+
+
+## Distribution of college experiences by climate change time impact cluster (items from Q6, Q7, Q8, Q9)
+
+
+
+#### Undergraduate experiences and clusters
+
+Q6a - Conducted research with a faculty member
+Observation: distribution looks consistent across clusters
+
+```{r}
+
+# Q6a
+
+climate_df <- climate_df %>%
+  mutate(res_exp = case_when(Q6a == 1 ~ "Never",
+                             Q6a == 2 ~ "Limited",
+                             Q6a == 3 ~ "1/2 semester",
+                             Q6a == 4 ~ "1 Semester",
+                             Q6a == 5 ~ "> 1 Semester"))
+
+
+climate_df %>%
+  drop_na(Q6a) %>%
+  ggplot(aes(x = res_exp, fill = as_factor(cluster_time_rank))) +
+  geom_bar(stat = "count") +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  scale_fill_manual(values = cluster_colors) +
+  coord_flip() +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Research Experience",
+       y = "Count",
+       title = "Undergraduate Research Experience by Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(res_exp)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$res_exp)
+cont_table
+chisq.test(cont_table)
+
+kruskal.test(res_exp ~ cluster_time_rank, data = climate_df)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Research experience")
+
+
+```
+
+
+
+
+Q6e - Work for an engineering company as a intern/co-op
+
+
+
+```{r}
+
+# Q6a
+
+climate_df <- climate_df %>%
+  mutate(work_exp = case_when(Q6e == 1 ~ "Never",
+                             Q6e == 2 ~ "Limited",
+                             Q6e == 3 ~ "1/2 semester",
+                             Q6e == 4 ~ "1 Semester",
+                             Q6e == 5 ~ "> 1 Semester"))
+
+
+climate_df %>%
+  drop_na(Q6e) %>%
+  ggplot(aes(x = work_exp, fill = as_factor(cluster_time_rank))) +
+  geom_bar(stat = "count") +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  scale_fill_manual(values = cluster_colors) +
+  coord_flip() +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Work Experience",
+       y = "Count",
+       title = "Undergraduate Work Experience by Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(work_exp)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$work_exp)
+cont_table
+chisq.test(cont_table)
+
+kruskal.test(work_exp ~ cluster_time_rank, data = climate_df)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Work experience")
+
+
+```
+
+
+
+Q6d - Work or volunteered in a developing country
+
+
+
+```{r}
+
+# Q6d
+
+climate_df <- climate_df %>%
+  mutate(dev_country_exp = case_when(Q6d == 1 ~ "Never",
+                             Q6d == 2 ~ "Limited",
+                             Q6d == 3 ~ "1/2 semester",
+                             Q6d == 4 ~ "1 Semester",
+                             Q6d == 5 ~ "> 1 Semester"))
+
+
+climate_df %>%
+  drop_na(Q6d) %>%
+  ggplot(aes(x = dev_country_exp, fill = as_factor(cluster_time_rank))) +
+  geom_bar(stat = "count") +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  scale_fill_manual(values = cluster_colors) +
+  coord_flip() +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Work in Developing Country Experience",
+       y = "Count",
+       title = "Undergraduate Work in Developing Country Experience by Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(dev_country_exp)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$dev_country_exp)
+cont_table
+chisq.test(cont_table)
+
+
+kruskal.test(dev_country_exp ~ cluster_time_rank, data = climate_df)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Work in Developing Country Experience")
+
+
+```
+
+
+
+Q6i - Traveled with an international service group (e.g., Engineers Without Borders, Students Helping Honduras, Bridges to Prosperity)
+
+
+```{r}
+
+# Q6i
+
+climate_df <- climate_df %>%
+  mutate(int_ser_exp = case_when(Q6i == 1 ~ "Never",
+                             Q6i == 2 ~ "Limited",
+                             Q6i == 3 ~ "1/2 semester",
+                             Q6i == 4 ~ "1 Semester",
+                             Q6i == 5 ~ "> 1 Semester"))
+
+
+climate_df %>%
+  drop_na(Q6i) %>%
+  ggplot(aes(x = int_ser_exp, fill = as_factor(cluster_time_rank))) +
+  geom_bar(stat = "count") +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  scale_fill_manual(values = cluster_colors) +
+  coord_flip() +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "International Service Experience",
+       y = "Count",
+       title = "Undergraduate International Service Experience by Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(int_ser_exp)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$int_ser_exp)
+cont_table
+chisq.test(cont_table)
+
+kruskal.test(int_ser_exp ~ cluster_time_rank, data = climate_df)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs International Service experience")
+
+
+```
+
+
+
+Q6j - Participated in an organization that focuses on environmental sustainability
+
+
+
+
+```{r}
+
+# Q6j
+
+climate_df <- climate_df %>%
+  mutate(env_exp = case_when(Q6j == 1 ~ "Never",
+                             Q6j == 2 ~ "Limited",
+                             Q6j == 3 ~ "Half semester",
+                             Q6j == 4 ~ "1 Semester",
+                             Q6j == 5 ~ "> 1 Semester"))
+
+
+climate_df %>%
+  drop_na(Q6j) %>%
+  ggplot(aes(x = env_exp, fill = as_factor(cluster_time_rank))) +
+  geom_bar(stat = "count") +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  scale_fill_manual(values = cluster_colors) +
+  coord_flip() +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 10)) +
+  labs(x = "Environmental Sustainability Org. Experience",
+       y = "Count",
+       title = "Undergraduate Environmental Sustainabilty Org. Experience by Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(env_exp)
+climate_df %>% count(Q6j)
+
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$env_exp)
+cont_table
+chisq.test(cont_table)
+
+kruskal.test(Q6j ~ cluster_time_rank, data = climate_df)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Environmental Sustainability Org. experience")
+
+
+```
+
+
+#### Events in recent engineering design course
+
+
+```{r}
+
+# Q8j
+
+climate_df <- climate_df %>%
+  mutate(cont_iss = case_when(Q8j == 1 ~ "Never",
+                             Q8j == 2 ~ "Rarely",
+                             Q8j == 3 ~ "Monthly",
+                             Q8j == 4 ~ "Weekly",
+                             Q8j == 5 ~ "Daily"))
+
+
+climate_df %>%
+  drop_na(Q8j) %>%
+  ggplot(aes(x = cont_iss, fill = as_factor(cluster_time_rank))) +
+  geom_bar(stat = "count") +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  scale_fill_manual(values = cluster_colors) +
+  coord_flip() +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5)) +
+  labs(x = "Covered Contemporary Issues in the World in Class",
+       y = "Count",
+       title = "Coverage of Contemporary Issues in the World in Class by Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(cont_iss)
+climate_df %>% count(Q8j)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$cont_iss)
+cont_table
+chisq.test(cont_table)
+climate_df <- climate_df %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank))
+
+
+kruskal.test(Q8j ~ cluster_time_rank, data = climate_df)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Coverage of Contemporary Issues")
+
+
+```
+
+
+Q8n - The teacher related course concepts to helping people
+
+
+```{r}
+
+# Q6j
+
+climate_df <- climate_df %>%
+  mutate(help_people = case_when(Q8n == 1 ~ "Never",
+                             Q8n == 2 ~ "Rarely",
+                             Q8n == 3 ~ "Monthly",
+                             Q8n == 4 ~ "Weekly",
+                             Q8n == 5 ~ "Daily"))
+
+
+climate_df %>%
+  drop_na(Q8n) %>%
+  ggplot(aes(x = help_people, fill = as_factor(cluster_time_rank))) +
+  geom_bar(stat = "count") +
+  facet_wrap(. ~ cluster_time_rank, scales = "free") +
+  scale_fill_manual(values = cluster_colors) +
+  coord_flip() +
+  theme_light() +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 10)) +
+  labs(x = "Related Course Concepts to Helping People",
+       y = "Count",
+       title = "Discussion in Class of Relating Course Concepts to Helping People by Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(help_people)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$help_people)
+cont_table
+chisq.test(cont_table)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Relate Course Concepts to Helping People")
+
+
+```
+
+
+
+
+```{r}
+
+
+
+```
+
+
+#### Academic topics and clusters
+
+
+Multiple options for showing distributions of course topic coverage for students in each cluster
+
+
+
+```{r}
+
+climate_df %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>%
+  ggplot(aes(x = cluster_time_rank, y = Q7a_tally, fill = cluster_time_rank)) +
+  geom_boxplot() +
+  scale_fill_manual(values = cluster_colors) +
+  theme(legend.position = "none")
+
+
+
+climate_df %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>%
+  ggplot(aes(x = cluster_time_rank, y = Q7a_tally, fill = cluster_time_rank)) +
+  geom_boxplot() +
+  geom_jitter(alpha = 0.5, color = "grey50") +
+  scale_fill_manual(values = cluster_colors) +
+  theme(legend.position = "none")
+
+
+climate_df %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>%
+  ggplot(aes(x = cluster_time_rank, y = Q7a_tally)) +
+  geom_boxplot() +
+  geom_jitter(aes(color = cluster_time_rank),
+              alpha = 0.3,
+              height = 0.15, width = 0.4) +
+  scale_color_manual(values = cluster_colors) +
+  theme(legend.position = "none")
+
+
+climate_df %>%
+  mutate(Q7a_tally = as_factor(Q7a_tally),
+         cluster_time_rank = as_factor(cluster_time_rank)) %>%
+  ggplot() +
+  geom_mosaic(aes(x = product(Q7a_tally, cluster_time_rank),
+                  fill = cluster_time_rank),
+              na.rm = TRUE) +
+  scale_fill_manual(values = cluster_colors) +
+  labs(title = "Mosaic plot of Q7a_tally vs cluster")
+
+# climate_df %>%
+#   ggplot(aes(x = as_factor(cluster_time_rank), y = Q7c_wt_sum)) +
+#   geom_boxplot() +
+#   theme(axis.text = element_text(size=8))
+
+
+
+```
+
+
+
+Using boxplots + jittered points to show distribution of course topics by cluster
+
+```{r}
+#letters[0:22]
+Q7_tally_vars <- paste0("Q7", letters[0:22], "_tally")
+#Q7_wt_sum_vars[1]
+
+
+
+Q7_topics <- c("Energy supply",
+               "Energy demand",
+               "Climate change",
+               "Terrorism & war",
+               "Water supply",
+               "Population growth",
+               "Food availability",
+               "Disease",
+               "Poverty and distibution of weath and resources",
+               "Sustainable development",
+               "Life cycle analysis methods",
+               "Bio-mimicry",
+               "Environmental degradation",
+               "Culturally appropriate solutions",
+               "Providing opportunities for future generations",
+               "Female pioneers in engineering",
+               "Under-representation of females in engineerings",
+               "Under-representation of racial minorities in engineering",
+               "Engineering careers, stages, or options",
+               "Benefits of becoming an engineer",
+               "Students' stories about engineering/science",
+               "Teachers' stories about their engineering/science experience")
+
+Q7_y_labels <- paste0(Q7_tally_vars, "--", Q7_topics)
+
+
+# try eval
+
+plots_list <- purrr::map2(.x = Q7_tally_vars,
+                          .y = Q7_y_labels,
+                          .f = ~  ggplot(data = climate_df,
+                                         aes(x = as_factor(cluster_time_rank),
+                                             y = eval(as.name(.x)))) +
+                    geom_boxplot(alpha = 0.5) +
+                      geom_jitter(aes(color = as_factor(cluster_time_rank)),
+                                  alpha = 0.3,
+                                  height = 0.15,
+                                  width = 0.4) +
+                      labs(x = "Cluster Time Rank",
+                           y = .y,
+                           title = "Course topic coverage by group") +
+                      scale_color_manual(values = cluster_colors) +
+                      theme(plot.title = element_text(hjust=0.5),
+                            legend.position = "none",
+                            axis.title = element_text(size=8)))
+
+
+#length(plots_list)
+for (i in 1:length(plots_list)) {
+  print(plots_list[[i]])
+  }
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(Q7a_tally)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$Q7a_tally)
+cont_table
+chisq.test(cont_table)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Attempt to combine all tests together
+
+```{r}
+Q7_tally_vars <- paste0("Q7", letters[0:22], "_tally")
+
+
+coll_exp_df <- climate_df %>%  
+  #drop_na(Q2_vars) %>% 
+  select(student_id, Q6a, Q6d, Q6e, Q6i, Q6j,
+         Q7_tally_vars,
+         Q8j, Q8n,
+         Q9a, Q9b, Q9c,
+         major, cluster_time_rank) %>% 
+  pivot_longer(cols = Q6a:Q9c, 
+               names_to = "coll_exp_item", values_to = "coll_exp_resp")
+
+
+```
+
+
+
+```{r}
+# climate_df %>% head()
+# 
+# coll_exp_df %>% head(40)
+```
+
+
+
+            
+
+```{r}
+nested <- coll_exp_df %>% 
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>% 
+  group_by(coll_exp_item) %>% 
+  nest(-coll_exp_item) %>% 
+  mutate(
+    coll_exp_item_name = case_when(
+      coll_exp_item == "Q6a" ~ "Extracurr: Eng. research", 
+      coll_exp_item == "Q6d" ~ "Extracurr: Work/volunteer in dev. cou.",
+      coll_exp_item == "Q6e" ~ "Extracurr: Work for eng. co.",
+      coll_exp_item == "Q6i" ~ "Extracurr: Travel w/ int. ser. gr.",
+      coll_exp_item == "Q6j" ~ "Extracurr: Part of env. sus. gr.",
+      coll_exp_item == "Q7a_tally" ~ "Course top: Energy supply",
+      coll_exp_item == "Q7b_tally" ~ "Course top: Energy demand",
+      coll_exp_item == "Q7c_tally" ~ "Course top: Climate change",
+      coll_exp_item == "Q7d_tally" ~ "Course top: Terrorism + war",
+      coll_exp_item == "Q7e_tally" ~ "Course top: Water supply",
+      coll_exp_item == "Q7f_tally" ~ "Course top: Pop. growth",
+      coll_exp_item == "Q7g_tally" ~ "Course top: Food avail.",
+      coll_exp_item == "Q7h_tally" ~ "Course top: Disease",
+      coll_exp_item == "Q7i_tally" ~ "Course top: Poverty",
+      coll_exp_item == "Q7j_tally" ~ "Course top: Sus. dev.",
+      coll_exp_item == "Q7k_tally" ~ "Course top: LCA",
+      coll_exp_item == "Q7l_tally" ~ "Course top: Bio-mimicry",
+      coll_exp_item == "Q7m_tally" ~ "Course top: Env deg.",
+      coll_exp_item == "Q7n_tally" ~ "Course top: Culturally app. sol.",
+      coll_exp_item == "Q7o_tally" ~ "Course top: Opp. for future gen.",
+      coll_exp_item == "Q7p_tally" ~ "Course top: Female pioneers",
+      coll_exp_item == "Q7q_tally" ~ "Course top: Under-rep of fem.",
+      coll_exp_item == "Q7r_tally" ~ "Course top: Under-rep of min.",
+      coll_exp_item == "Q7s_tally" ~ "Course top: Eng. careers/stages",
+      coll_exp_item == "Q7t_tally" ~ "Course top: Benefits of being eng.",
+      coll_exp_item == "Q7u_tally" ~ "Course top: Student stories",
+      coll_exp_item == "Q7v_tally" ~ "Course top: Teacher stories",
+      coll_exp_item == "Q8j" ~ "Design course: Concepts to cont. issues",
+      coll_exp_item == "Q8n" ~ "Design course: Concepts to help ppl",
+      coll_exp_item == "Q9a" ~ "Sus. minor",
+      coll_exp_item == "Q9b" ~ "Design for ppl in need",
+      coll_exp_item == "Q9c" ~ "Design w/ int. ser."
+      ),
+    cont_tab = purrr::map(data, ~table(.$cluster_time_rank, .$coll_exp_resp)),
+    test = purrr::map(data, ~kruskal.test(.$cluster_time_rank, .$coll_exp_resp)),
+    tidied = purrr::map(test, tidy),
+    m_plot = mosaicplot(cont_tab[[1]], shade = TRUE, main = coll_exp_item_name),
+    box_plot = purrr::map(data, ~ ggplot(.x, aes(x = .$cluster_time_rank, 
+                                            y = .$coll_exp_resp)) +
+                            geom_boxplot(alpha = 0.5) +
+                            geom_jitter(aes(color = .$cluster_time_rank),
+                                        alpha = 0.3,
+                                        height = 0.15,
+                                        width = 0.4) +
+                            labs(x = "Cluster",
+                                 y = coll_exp_item_name,
+                                 title = paste0("College experience items by cluster - ", coll_exp_item_name)) +
+                            scale_color_manual(values = cluster_colors) +
+                            theme_light() +
+                            theme(legend.position = "none", 
+                                  plot.title = element_text(hjust = 0.5, 
+                                                            size = 10))
+                          ))
+
+
+for (i in 1:length(nested$box_plot)) {
+  print(nested$box_plot[[i]])
+}
+
+
+```
+
+
+
+
+```{r}
+
+
+
+
+```
+
+
+
+#### Table of Kruskal Wallis test results
+
+
+```{r}
+
+unnested <- nested %>% 
+  select(coll_exp_item, coll_exp_item_name, tidied) %>% 
+  unnest(tidied)
+
+unnested$p_value_adjusted_holm <- p.adjust(unnested$p.value, method = "holm")
+unnested$p_value_adjusted_BH <- p.adjust(unnested$p.value, method = "BH")
+
+  
+unnested %>%   
+  kable()
+
+```
+
+
+
+
+
+### Re-do Q9 analysis since it they are binary items
+
+
+##### Question 9 items (binary outcomes)
+
+Q9a - Did you minor in or have a concentration related to sustainability?
+
+
+```{r}
+
+climate_df <- climate_df %>%
+  mutate(Q9a_bin = case_when(Q9a == 1 ~ "Yes",
+                             Q9a == 2 ~ "No"))
+
+
+climate_df %>%
+  drop_na(Q9a) %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>%
+  group_by(cluster_time_rank, Q9a_bin) %>%
+  summarize(Q9a_n = n()) %>%
+  add_count(cluster_time_rank, wt = Q9a_n, name = "cluster_n") %>%
+  mutate(cluster_prop = Q9a_n / cluster_n) %>%
+  ggplot(aes(x = cluster_time_rank, y = cluster_prop,
+             fill = as_factor(Q9a_bin))) +
+  geom_col(position = "stack") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = "Cluster",
+       y = "Proportion with concentration in sustainability",
+       fill = "Q9a answer",
+       title = "Proportions of Cluster (interest in addressing climate change) by major")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(Q9a_bin)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$Q9a_bin)
+cont_table
+chisq.test(cont_table)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs Sustainability concentration")
+
+
+```
+
+
+Q9b - Did your most recent in-major engineering design project contribut to helping people in need?
+
+```{r}
+
+climate_df <- climate_df %>%
+  mutate(Q9b_bin = case_when(Q9b == 1 ~ "Yes",
+                             Q9b == 2 ~ "No"))
+
+
+climate_df %>%
+  drop_na(Q9b) %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>%
+  group_by(cluster_time_rank, Q9b_bin) %>%
+  summarize(Q9b_n = n()) %>%
+  add_count(cluster_time_rank, wt = Q9b_n, name = "cluster_n") %>%
+  mutate(cluster_prop = Q9b_n / cluster_n) %>%
+  ggplot(aes(x = cluster_time_rank, y = cluster_prop,
+             fill = as_factor(Q9b_bin))) +
+  geom_col(position = "stack") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = "Cluster",
+       y = "Proportion with design project helping people in need",
+       fill = "Q9b answer",
+       title = "Proportions of Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(Q9b_bin)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$Q9b_bin)
+cont_table
+chisq.test(cont_table)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs design project contributing to helping people in need")
+
+
+```
+
+
+
+
+Q9c - Did you most recent in-major engineering design course include an international service component?
+
+```{r}
+
+climate_df <- climate_df %>%
+  mutate(Q9c_bin = case_when(Q9c == 1 ~ "Yes",
+                             Q9c == 2 ~ "No"))
+
+
+climate_df %>%
+  drop_na(Q9c) %>%
+  mutate(cluster_time_rank = as_factor(cluster_time_rank)) %>%
+  group_by(cluster_time_rank, Q9c_bin) %>%
+  summarize(Q9c_n = n()) %>%
+  add_count(cluster_time_rank, wt = Q9c_n, name = "cluster_n") %>%
+  mutate(cluster_prop = Q9c_n / cluster_n) %>%
+  ggplot(aes(x = cluster_time_rank, y = cluster_prop,
+             fill = as_factor(Q9c_bin))) +
+  geom_col(position = "stack") +
+  scale_fill_brewer(palette = "Set2") +
+  labs(x = "Cluster",
+       y = "Proportion with international service component",
+       fill = "Q9c answer",
+       title = "Proportions of Cluster")
+
+
+```
+
+
+
+```{r}
+
+climate_df %>% count(Q9c_bin)
+
+cont_table <- table(climate_df$cluster_time_rank, climate_df$Q9c_bin)
+cont_table
+chisq.test(cont_table)
+
+```
+
+
+
+```{r}
+
+mosaicplot(cont_table, shade = TRUE, main = "Cluster vs international service component")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- # Modeling with multilevel model -->
+
+<!-- #### Population level is all students; Group level is majors -->
+<!-- #### Outcome: cluster membership (ordinal) -->
+<!-- #### Predictor(s): Course topic in discipline-specific engineering course (binary) -->
+
+<!-- ```{r} -->
+<!-- sim_data <- tibble(group_no = rep(1:4, each = 50)) -->
+
+<!-- sim_data <- sim_data %>%  -->
+<!--   mutate(group_mean = group_no * 3) %>%  -->
+<!--   rowid_to_column(var = "student_no") %>%  -->
+<!--   mutate(group_sd = 2) %>%  -->
+<!--   mutate(student_score = rnorm(n = 1, mean = group_mean, sd = group_sd)) -->
+
+<!-- sim_data$student_age <- rbinom(n = length(sim_data$student_no), size = 22, p = 0.9) -->
+
+
+<!-- #rbinom(n = 4, size = 22, p = 0.9) -->
+
+<!-- sim_data -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- disciplines <- c("chemical_eng", "chemistry", "biomedical_eng", "biology", "business", "architecture", "philosophy") -->
+
+<!-- pop_n <- c(100, 150, 125, 130, 140, 150, 145) # create populations with different sizes -->
+<!-- #pop_n <- rep(x = 1000, times = length(disciplines)) # assume each population is 1000 students big -->
+<!-- pop_disc_mean <- c(30, 25, 28, 18, 15, 40, 19) -->
+<!-- pop_disc_sd <- c(3, 4, 4, 3.2, 3.8, 3.4, 4.1) -->
+
+
+<!-- pop_disc_name_vect <- rep(x = disciplines, times = pop_n) -->
+<!-- pop_disc_mean_vect <- rep(x = pop_disc_mean, times = pop_n) -->
+<!-- pop_disc_sd_vect <- rep(x = pop_disc_sd, times = pop_n) -->
+<!-- pop_study_hrs_vect <- modify2(.x = pop_disc_mean_vect, .y = pop_disc_sd_vect, .f = ~rnorm(n = 1, mean = .x, sd = .y)) -->
+<!-- # pop_grade_vect <- modify(.x = pop_study_hrs_vect,  -->
+<!-- #                          .y = pop_disc_name_vect, -->
+<!-- #                          .f = ~case_when( -->
+<!-- #                            .y == "chemical_eng" ~ rbinom(n = 1, size = 100, prob = .x/100) + 50), -->
+<!-- #                          TRUE ~ 60) -->
+
+<!-- grade_vect <- rep(NA, length(pop_disc_name_vect)) -->
+
+<!-- for (i in 1:length(grade_vect)){ -->
+<!--   grade_vect[i] <- case_when(pop_disc_name_vect[i] == "chemical_eng" ~  pop_study_hrs_vect[i] *.8 + 50 + rbinom(n = 1, size = 10, prob = .5), -->
+<!--                              pop_disc_name_vect[i] == "chemistry" ~  pop_study_hrs_vect[i] *.45 + 45 + rbinom(n = 1, size = 10, prob = .5), -->
+<!--                              pop_disc_name_vect[i] == "biomedical_eng" ~  pop_study_hrs_vect[i] *.6 + 40 + rbinom(n = 1, size = 10, prob = .5), -->
+<!--                              pop_disc_name_vect[i] == "biology" ~  pop_study_hrs_vect[i] *1.03 + 55 + rbinom(n = 1, size = 10, prob = .5), -->
+<!--                              pop_disc_name_vect[i] == "business" ~  pop_study_hrs_vect[i] *.33 + 40 + rbinom(n = 1, size = 10, prob = .5), -->
+<!--                              pop_disc_name_vect[i] == "architecture" ~  pop_study_hrs_vect[i] *.4 + 60 + rbinom(n = 1, size = 10, prob = .5), -->
+<!--                              pop_disc_name_vect[i] == "philosophy" ~  pop_study_hrs_vect[i] *.5 + 50 + rbinom(n = 1, size = 10, prob = .5) -->
+<!--                              ) -->
+<!-- } -->
+
+<!-- #rbinom(n = 1, size = 100, prob = .50) -->
+
+<!-- pop_data_df <- tibble(discipline = pop_disc_name_vect,  -->
+<!--                       pop_disc_mean = pop_disc_mean_vect,  -->
+<!--                       pop_disc_sd = pop_disc_sd_vect, -->
+<!--                       pop_study_hrs = round(pop_study_hrs_vect, 1), -->
+<!--                       pop_grade = round(grade_vect, 1)) -->
+
+
+<!-- pop_data_df -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- pop_data_df %>% -->
+<!--   ggplot(aes(x = pop_study_hrs, y = pop_grade, color = discipline)) + -->
+<!--   geom_smooth(method = "lm") + -->
+<!--   geom_point() -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- mod_lme <- lmer(pop_grade ~ 1 + pop_study_hrs + (1 + pop_study_hrs | discipline),  -->
+<!--                  data = pop_data_df) -->
+
+<!-- summary(mod_lme) -->
+<!-- #str(mod_lme) -->
+<!-- coef(mod_lme) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- mod_brm <- brm(pop_grade ~ 1 + pop_study_hrs + (1 + pop_study_hrs | discipline),  -->
+<!--                data = pop_data_df, -->
+<!--                cores = parallel::detectCores()) -->
+
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+<!-- summary(mod_brm) -->
+
+<!-- posterior_summary(mod_brm) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- get_variables(mod_brm) -->
+
+<!-- mod_brm %>%  -->
+<!--   spread_draws(b_Intercept, r_discipline[discipline,term]) %>%  -->
+<!--   mutate(condition_mean = b_Intercept + r_discipline) %>%  -->
+<!--   ggplot(aes(y = discipline, x = condition_mean)) + -->
+<!--   stat_halfeye() -->
+
+
+
+<!-- # wasn't working -->
+<!-- # mod_brm %>%  -->
+<!-- #   spread_draws(`r_.*`, regex = TRUE) %>%  -->
+<!-- #   ggplot(aes(y = factor(i), x = r_discipline)) + -->
+<!-- #   stat_halfeye(.width = c(.9, .5)) +  -->
+<!-- #   labs(title = "Intercept Estimates for Grades by Study Hours", -->
+<!-- #        x = "Parameter Estimate", -->
+<!-- #        y = "Cluster cutoff point") + -->
+<!-- #   theme(plot.title = element_text(hjust=0.5)) -->
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+
+<!-- library(brms) -->
+
+
+<!-- mod1 <- brm(cluster ~ 1 + (1 + Q7a_disc_spec|major), data = climate_df) -->
+
+
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+
+<!-- summary(mod1) -->
+
+<!-- ``` -->
+
+
+
+
+
+<!-- ```{r} -->
+
+<!-- mod2 <- brm(formula = ordered(cluster_time_rank) ~ 1 + (1 + Q7a_disc_spec | major), -->
+<!--             data = climate_df, -->
+<!--             family = cumulative("logit")) -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+
+
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+
+<!-- summary(mod2) -->
+
+<!-- coef(mod2) -->
+
+<!-- ``` -->
+
+
+<!-- Model 3 - ordinal logistic regression with reversed time rank as outcome (1 = never, 7 = climate change affecting everything now) - population-level intercept, discipline-specific intercept and discipline-specific effect of binary Q7c - climate change covered in discipline-specific engineering course -->
+
+
+```{r}
+climate_df <- climate_df %>% mutate(cluster_time_rank_rev = length(unique(cluster_time_rank)) + 1 - as.integer(cluster_time_rank))
+
+climate_df %>% select(cluster_time_rank, cluster_time_rank_rev) %>% head(10)
+
+# population-level intercept, group_level intercept and slope
+
+# mod3 <- brm(formula = ordered(cluster_time_rank_rev) ~ 1 + (1 + Q7c_disc_spec | major),
+#             data = climate_df,
+#             family = cumulative("logit"))
+
+
+```
+
+
+
+
+<!-- ```{r} -->
+
+<!-- summary(mod3) -->
+
+<!-- coef(mod3) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+
+<!-- #conditional_effects(mod3) -->
+
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- mod3transformed <- ggs(mod3) -->
+
+<!-- mod3transformed <- mod3transformed %>%  -->
+<!--   mutate(param_type = case_when(str_detect(Parameter, "Intercept") ~ "intercept", -->
+<!--                                 str_detect(Parameter, "Q7d") ~ "slope")) -->
+
+<!-- mod_params <- unique(mod3transformed$Parameter) -->
+
+
+<!-- ggplot(filter(mod3transformed, Parameter %in% mod_params[1:7]), -->
+<!--        aes(x   = Iteration, -->
+<!--            y   = value,  -->
+<!--            col = as.factor(Chain)))+ -->
+<!--   geom_line() + -->
+<!--   geom_vline(xintercept = 1000)+ -->
+<!--   facet_grid(Parameter ~ . , -->
+<!--              scale  = 'free_y', -->
+<!--              switch = 'y')+ -->
+<!--   labs(title = "Caterpillar Plots",  -->
+<!--        col   = "Chains") -->
+
+
+<!-- ``` -->
+
+
+
+
+
+<!-- ```{r} -->
+
+<!-- ggplot(filter(mod3transformed, -->
+<!--               Parameter == "b_Intercept[1]",  -->
+<!--               Iteration > 1000), -->
+<!--        aes(x = value))+ -->
+<!--   geom_density(fill  = "yellow",  -->
+<!--                alpha = .5)+ -->
+<!--   geom_vline(xintercept = 0,  -->
+<!--              col  = "red", -->
+<!--              size = 1)+ -->
+<!--   scale_x_continuous(name   = "Value") +  -->
+<!--   geom_vline(xintercept = summary(mod3)$fixed[1,3:4], -->
+<!--              col = "blue", -->
+<!--              linetype = 2) + -->
+<!--   theme_light() + -->
+<!--   labs(title = "Posterior Density of Intercept") -->
+
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+
+
+<!-- ggplot(filter(mod3transformed, -->
+<!--               Parameter %in% mod_params[1:6],  -->
+<!--               Iteration > 1000), -->
+<!--        aes(x = value)) + -->
+<!--   geom_density(fill  = "yellow",  -->
+<!--                alpha = .5) + -->
+<!--   facet_grid(Parameter ~ ., scales = "free") + -->
+<!--    geom_vline(xintercept = 0,  -->
+<!--              col  = "red", -->
+<!--              size = 1) + -->
+<!--   theme_light() + -->
+<!--   labs(title = "Posterior Density of Intercept") -->
+
+<!-- ``` -->
+
+
+
+
+<!-- ```{r} -->
+
+<!-- ggplot(filter(mod3transformed, -->
+<!--               Parameter %in% mod_params[11:35],  -->
+<!--               Iteration > 1000), -->
+<!--        aes(x = value, y = Parameter)) + -->
+<!--   geom_density_ridges() + -->
+<!--   theme_light() + -->
+<!--   labs(title = "Posterior Density of Parameters") -->
+
+<!-- ``` -->
+
+
+
+
+<!-- ```{r} -->
+
+<!-- mod3transformed %>% filter(str_detect(Parameter, "Q7d_disc_spec]")) -->
+
+<!-- # not very useful -->
+
+<!-- ggplot(filter(mod3transformed, -->
+<!--               Parameter %in% mod_params[11:35],  -->
+<!--               Iteration > 1000), -->
+<!--        aes(x = value)) + -->
+<!--   geom_density() +  -->
+<!--   facet_grid(Parameter ~ param_type) + -->
+<!--   theme_light() + -->
+<!--   labs(title = "Posterior Density of Parameters") -->
+
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- # intercept densities -->
+<!-- ggplot(filter(mod3transformed, -->
+<!--               param_type == "intercept",  -->
+<!--               Iteration > 1000), -->
+<!--        aes(x = value, y = Parameter)) + -->
+<!--   geom_density_ridges() + -->
+<!--   theme_light() + -->
+<!--   labs(title = "Posterior Density of Parameters") -->
+
+
+<!-- # slope densities -- doesn't work -->
+
+<!-- ggplot(filter(mod3transformed, -->
+<!--               param_type == "slope",  -->
+<!--               Iteration > 1000), -->
+<!--        aes(x = value, y = Parameter)) + -->
+<!--   geom_density_ridges() + -->
+<!--   theme_light() + -->
+<!--   labs(title = "Posterior Density of Parameters") -->
+
+
+
+<!-- # same method, but without relying on the new column -->
+<!-- ggplot(filter(mod3transformed, -->
+<!--               str_detect(Parameter, "Q7c_disc_spec]"),  -->
+<!--               Iteration > 1000), -->
+<!--        aes(x = value, y = Parameter)) + -->
+<!--   geom_density_ridges() + -->
+<!--   theme_light() + -->
+<!--   labs(title = "Posterior Density of Discipline-Specific Slope Parameters") -->
+
+
+
+<!-- ``` -->
+
+
+
+
+<!-- ```{r} -->
+
+<!-- # population-level intercept, group_level intercept and slope -->
+
+<!-- mod4 <- brm(formula = ordered(cluster_time_rank_rev) ~ 1 + Q7d_disc_spec + (1 + Q7d_disc_spec | major), -->
+<!--             data = climate_df, -->
+<!--             family = cumulative("logit")) -->
+
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- summary(mod4) -->
+
+<!-- coef(mod4) -->
+
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- plot(mod4) -->
+
+<!-- ``` -->
+
+
+<!-- Model 5 - population-level intercept and population-level monotonic ordinal effects with discipline-specific intercepts and monotonic ordinal effects of environmental topic sum in discipline-specific courses -->
+
+```{r}
+# model with all environmental variables
+
+climate_df <- climate_df %>%
+  mutate(Q7_disc_spec_env_sum = Q7a_disc_spec + Q7b_disc_spec + Q7c_disc_spec + Q7e_disc_spec + Q7j_disc_spec + Q7k_disc_spec + Q7m_disc_spec)
+
+
+climate_df %>%
+  select(Q7_disc_spec_env_sum, Q7a_disc_spec, Q7b_disc_spec, Q7c_disc_spec, Q7e_disc_spec, Q7j_disc_spec, Q7k_disc_spec, Q7m_disc_spec) %>%
+  head(10)
+
+```
+
+
+<!-- mod5 <- brm(formula = ordered(cluster_time_rank_rev) ~ 1 + mo(Q7_disc_spec_env_sum) + (1 + mo(Q7_disc_spec_env_sum) | major), -->
+<!--             data = climate_df, -->
+<!--             family = cumulative("logit")) -->
+
+<!-- stanplot(mod5, pars = c("^r_", "^b_", "^sd_")) + -->
+<!--   theme_light() + -->
+<!--   theme(axis.text.y = element_text(hjust = 0), -->
+<!--         plot.title = element_text(hjust = 0.5, size=10)) + -->
+<!--   labs(x = "Parameter estimate", -->
+<!--        title = "Multilevel OLR Parameter Estimates with Major-specific Intercepts and Slopes")  -->
+
+<!-- # mod5 %>% -->
+<!-- #   spread_draws(b_Intercept, r_condition[condition,]) %>% -->
+<!-- #   mutate(condition_mean = b_Intercept + r_condition) %>% -->
+<!-- #   ggplot(aes(y = condition, x = condition_mean)) + -->
+<!-- #   stat_halfeye() -->
+
+<!-- ``` -->
+
+
+
+
+<!-- ```{r} -->
+<!-- summary(mod5) -->
+
+<!-- coef(mod5) -->
+
+
+<!-- ``` -->
+
+
+
+
+<!-- Model 6 - population-level intercept, group-level intercept, group-level slope for monotonic predictor (sum env. topics in discipline-specific engineering course) -->
+
+<!-- ```{r} -->
+
+<!-- mod6 <- brm(formula = ordered(cluster_time_rank_rev) ~ 1 + (1 + mo(Q7_disc_spec_env_sum) | major), -->
+<!--             data = climate_df, -->
+<!--             family = cumulative("logit")) -->
+
+<!-- get_variables(mod6) -->
+
+<!-- stanplot(mod6, pars = c("^r_", "^b_", "^sd_")) + -->
+<!--   theme_light() + -->
+<!--   theme(axis.text.y = element_text(hjust = 0)) -->
+
+
+<!-- ``` -->
+
+
+
+
+
+Model 7 - population-level ordinal effects of enviornmental topics plus
+
+```{r}
+
+mod7 <- brm(formula = ordered(cluster_time_rank_rev) ~ mo(Q7_disc_spec_env_sum) + (mo(Q7_disc_spec_env_sum) | major),
+            data = climate_df,
+            family = cumulative("logit"),
+            cores = parallel::detectCores())
+
+
+
+
+```
+
+
+
+```{r}
+
+summary(mod7)
+
+coef(mod7)
+
+
+```
+
+
+```{r}
+
+stanplot(mod7, pars = c("^r_", "^b_", "^sd_")) +
+  theme_light() +
+  theme(axis.text.y = element_text(hjust = 0))
+
+get_variables(mod7)
+
+mod7 %>%
+  spread_draws(`b_.*`[i], regex = TRUE) %>%
+  ggplot(aes(y = factor(i), x = b_Intercept)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  labs(title = "Intercept Estimates for Orginal Regression with Environmental Topics",
+       x = "Parameter Estimate",
+       y = "Cluster cutoff point") +
+  theme(plot.title = element_text(hjust=0.5))
+
+```
+
+
+
+
+```{r}
+
+mod7 %>%
+  spread_draws(r_major[major,i]) %>%
+  ggplot(aes(y = factor(major), x = r_major)) +
+  stat_halfeye(.width = c(.9, .5)) +
+  facet_grid(major ~ i, scales = "free") +
+  labs(title = "Intercept Estimates for Orginal Regression with Environmental Topics",
+       x = "Parameter Estimate",
+       y = "Cluster cutoff point") +
+  theme(plot.title = element_text(hjust=0.5))
+
+
+```
+
+
+
+
+
+## End cluster analysis
